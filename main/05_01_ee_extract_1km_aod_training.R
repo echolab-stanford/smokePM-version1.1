@@ -19,9 +19,9 @@ overwrite = T
 # set a null value 
 null_value <- -999999
 
-# earth engine location of the 1km grid
-grid_train <- ee$FeatureCollection("users/SmokePM/grid_aod_1km/grid_aod_1km_wgs84_training") #Adjust path according to ee folder structure
-#grid_train <- ee$FeatureCollection(sprintf("users/%s/grid_aod_1km/grid_aod_1km_wgs84_training", gee_user))
+# earth engine location of the 1km grid - Adjust path according to ee folder structure
+#grid_train <- ee$FeatureCollection("users/SmokePM/grid_aod_1km/grid_aod_1km_wgs84_training") 
+grid_train <- ee$FeatureCollection(sprintf("users/%s/grid_aod_1km/grid_aod_1km_wgs84_training", gee_user))
 
 # google drive export location 
 output_drive <- "maiac_AOD"

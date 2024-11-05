@@ -3,6 +3,8 @@ source("scripts/setup/00_02_load_functions.R")
 source("scripts/setup/00_03_load_paths.R")
 source("scripts/setup/00_04_load_settings.R")
 
+#THIS SCRIPT STILL NEEDS FIXING
+
 #-------------------------------------------------------------------------------
 # Written by: Marissa Childs
 # Extracts percent AOD missing over 10km grid by month.

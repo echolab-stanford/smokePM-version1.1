@@ -9,18 +9,10 @@ source("Local_github/scripts/setup/00_04_load_settings.R")
 #-------------------------------------------------------------------------------
 elev <- ee$Image("USGS/NED")
 
-gee_user = "SmokePM"
 
 # extraction for 10km grid ----
 grid_10km <- ee$FeatureCollection(sprintf("users/%s/grid_10km/grid_10km_wgs84", gee_user))
 
-#this didn't work
-# comb_reducer <- ee$Reducer$combine(reducer1 = ee$Reducer$mean(),
-#                                    reducer2 = ee$Reducer$stdDev(),
-#                                    outputPrefix = "stdDev_",
-#                                    sharedInputs = TRUE)
-
-#ChatGPT fix
 comb_reducer <- ee$Reducer$mean()$combine(
   reducer2 = ee$Reducer$stdDev(),
   sharedInputs = TRUE

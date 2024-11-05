@@ -1,7 +1,7 @@
 source("scripts/setup/00_01_load_packages.R")
 source("scripts/setup/00_02_load_functions.R")
-source("Local_github/scripts/setup/00_03_load_paths.R")
-#source("scripts/setup/00_04_load_settings.R")
+source("scripts/setup/00_03_load_paths.R")
+source("scripts/setup/00_04_load_settings.R")
 
 #-------------------------------------------------------------------------------
 # Written by: Jessica Li
@@ -17,7 +17,8 @@ overwrite = T
 #-#-----------------------------------------------------------------------------
 
 # Read in project grid
-project_grid0 = read_sf("~/BurkeLab Dropbox/Projects/smokePM-prediction/data/1_grids/10km_grid/10km_grid.shp")
+#project_grid0 = read_sf("~/BurkeLab Dropbox/Projects/smokePM-prediction/data/1_grids/10km_grid/10km_grid.shp")
+project_grid0 = read_sf(file.path(path_data, "1_grids", "10km_grid"))
 
 # Define function for getting an ERA5 variable over 10 km grid
 get_over_grid <- function(dataset, variable, statistic, time_zone, path_in = path_era5, path_out = file.path(path_data, "ERA5_variables")) {
