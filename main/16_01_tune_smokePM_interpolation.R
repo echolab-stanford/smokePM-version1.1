@@ -51,7 +51,7 @@ year_months = format(seq.Date(ym(start_month), ym(end_month), by = "month"), "%Y
 station_full_panel <- year_months %>% map(function(year_month) {
   y = substr(year_month, 1, 4)
   m = substr(year_month, 6, 7)
-  out = readRDS(file.path(path_data_sherlock, "3_intermediate", "station_smokePM_MM", sprintf("station_smokePM_%s_%s.rds", y, m))) %>% 
+  out = readRDS(file.path(path_data_sherlock, "3_intermediate", "station_smokePM", sprintf("station_smokePM_%s_%s.rds", y, m))) %>% 
     dplyr::filter(!is.na(pm25) &  !is.na(smokePM) & !smoke_missing_date) # 
   return(out)
 }) %>% list_rbind()
