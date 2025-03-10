@@ -279,19 +279,14 @@ aod_smoke_panel <- aod %>%
                                  temp_2m = `2m_temperature_daily_mean_of_1-hourly`,
                                  surface_pressure = `surface_pressure_daily_mean_of_1-hourly`,
                                  precip = `total_precipitation_daily_maximum_of_1-hourly`), 
-            by = c("grid_id_10km", "date")) %>% 
+            by = c("grid_id_10km", "date")) 
+
+set.seed(1)
+aod_smoke_panel %<>% 
   # add splits for CV on model tuning 
-  left_join(aod_cells %>% (function(x, crosswalk = NULL) {
-    if (is.null(crosswalk)){
-      out = x %>% 
-        {.[sample.int(nrow(.), nrow(.), replace = F),]} %>% # reorder for randomness before assigning to folds
-        mutate(fold = mod(row_number(), n_fold))
-    } else {
-      out = x %>% left_join(crosswalk, by = "grid_id_1km")
-    }
-    return(out)
-  })(readRDS(file.path(path_data, "1_grids", "aod_cell_fold_crosswalk.rds"))), 
-  by = c("grid_id_1km", "grid_id_10km"))
+  left_join(aod_cells %>% {.[sample.int(nrow(.), nrow(.), replace = F),]} %>% # reorder for randomness before assigning to folds
+              mutate(fold = mod(row_number(), n_fold)), 
+            by = c("grid_id_1km", "grid_id_10km"))
 
 # we occasionally get NAs for aot_anom because there aren't any obs to make a location-month specific median
 anomAOD_training = aod_smoke_panel %>% 
