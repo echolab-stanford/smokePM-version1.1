@@ -14,18 +14,19 @@ param_bounds = list(pow = c(0.5, 5),
                     dist = c(3e5, 1e6), 
                     max_point = c(10L, 100L))
 
-# Set months for sample to span
-start_month = "2006-01" 
-end_month = "2023-06"
-
 # load data ----- 
 source("scripts/setup/00_03_load_paths.R")
 
 # read command line args which will be the fold which is treated as out-of-sample 
 args <- commandArgs(TRUE)
-out_folds <- na.omit(c(as.numeric(args)))  # run with 1-5 for the CV interpolations, and 99 all folds
+out_folds <- na.omit(c(as.numeric(args[1:2])))  # run with 1-5 for the CV interpolations, and 99 all folds
+
+# Set months for sample to span
+start_month = as.character(args[3]) #"2006-01" 
+end_month = as.character(args[4]) #"2023-06"
 
 # print informatiom about what will be run based on the command line args
+print(paste0("Interpolations will be run from ", start_month, " to ", end_month))
 print(paste0("Interpolation tuning via CV will be done over all fold(s) except ", 
              paste0(unique(out_folds), collapse = " and "), 
              "."))
@@ -184,7 +185,8 @@ bayes_opt_params <- BayesianOptimization(
 # save bayesian optimization params
 saveRDS(bayes_opt_params,
         file.path(path_output_sherlock, "smokePM_interpolation",
-                  paste0("interp_tune_params_drop", paste0(out_folds, collapse = ""), ".rds")))
+                  paste0("interp_tune_params_drop", paste0(out_folds, collapse = ""), 
+                         "_", start_month, "_", end_month, ".rds")))
 
 # run final interpolation with the tuned parameters
 best_interp = interp_over_dates(station_full_panel %>% 
@@ -198,7 +200,8 @@ best_interp = interp_over_dates(station_full_panel %>%
 # save interpolation values for the out_folds (or all obs if out_folds == 99)
 saveRDS(best_interp,
         file.path(path_output_sherlock, "smokePM_interpolation",
-                  paste0("interp_drop", paste0(out_folds, collapse = ""), ".rds")))
+                  paste0("interp_drop", paste0(out_folds, collapse = ""), 
+                         "_", start_month, "_", end_month, ".rds")))
 
 
 # print warnings 
