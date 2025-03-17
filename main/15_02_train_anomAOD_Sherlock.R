@@ -5,7 +5,7 @@
 #-#-----------------------------------------------------------------------------
 
 sherlock = T
-library(tidyverse)
+library(dplyr)
 library(magrittr)
 library(xgboost)
 library(rBayesianOptimization)
@@ -35,7 +35,7 @@ if (Sys.getenv('SLURM_JOB_ID') != ""){
   usable.cores <- 2
 }
 
-mod_data <- readRDS(file.path(path_output_sherlock, sprintf("version%s", model_version), "anomAOD", "anomAOD_training.rds"))
+mod_data <- readRDS(file.path(path_output_sherlock, sprintf("version%s", model_version), "anomAOD", "anomAOD_training_auto.rds"))
 
 xgb_opt_fun <- function(eta, gamma, max_depth, subsample, colsample_bytree, 
                         min_child_weight, xgb_mat, cv_ind = NULL, 

@@ -15,4 +15,4 @@
 ml R/4.0.2
 
 # execute script
-Rscript scripts/main/15_02_train_AOD_Sherlock.R
+Rscript scripts/main/15_02_train_anomAOD_Sherlock.R
