@@ -231,11 +231,15 @@ fire_dist = year_months %>% map_dfr(function(year_month) {
 # 
 #     return(out)
 #   })
-
-era5_combined_grids<- year_months %>% map_dfr(function(year_month) {
+# expand the range of year months by 1 since precip is on the following date 
+era5_combined_grids<- c(year_months,
+                        seq.Date(ymd(paste0(tail(year_months, 1), "-01")),
+                                 by = "1 month", length.out = 2)[2] %>% 
+                          format("%Y-%m")) %>% 
+  map_dfr(function(year_month) {
   y = substr(year_month, 1, 4)
   m = substr(year_month, 6, 7)
-  x = readRDS(file.path(path_data, "ERA5_variables", "raw", "joined_grids", sprintf("era5_joined_grid_%s_%s", y, m))) %>% 
+  x = readRDS(file.path(path_data, "ERA5_variables", "automated", "joined_grids", sprintf("era5_joined_grid_%s_%s", y, m))) %>% 
     filter(id_grid %in% aod_cells$grid_id_10km)
   return(x)
 })
@@ -253,7 +257,14 @@ era5_combined_grids<- year_months %>% map_dfr(function(year_month) {
 setDT(era5_combined_grids)
 era5_combined_grids <- era5_combined_grids[, lapply(.SD, function(x) if (all(is.na(x))) NA else x[which.max(!is.na(x))]), 
                                            by = .(id_grid, date)]
+# lag precipitation since its 1 day off (first make sure its ordered by date)
+setorder(era5_combined_grids, date)
+era5_combined_grids <- era5_combined_grids[, total_precipitation_daily_total := shift(total_precipitation_daily_total, 1, NA, "lead"),
+                                           by = .(id_grid)]
+                                           
 setDF(era5_combined_grids) #change it back to data frame
+
+
 
 # AOT ----
 aot = year_months %>% map_dfr(function(year_month) {
@@ -285,22 +296,6 @@ aod_smoke_panel <- aod %>%
                                  closest_fire_area = area, 
                                  closest_fire_num_points = num_points), 
             by = c("grid_id_10km", "date")) %>% 
-<<<<<<< Updated upstream
-  left_join(era5_global %>% select(grid_id_10km = id_grid, date, 
-                                   pbl_max = `boundary_layer_height_daily_maximum_of_1-hourly`,
-                                   pbl_mean = `boundary_layer_height_daily_mean_of_1-hourly`,
-                                   pbl_min = `boundary_layer_height_daily_minimum_of_1-hourly`,
-                                   sea_level_pressure = `mean_sea_level_pressure_daily_mean_of_1-hourly`), 
-            by = c("grid_id_10km", "date")) %>% 
-  left_join(era5_land %>% select(grid_id_10km = id_grid, date, 
-                                 wind_u = `10m_u_component_of_wind_daily_mean_of_1-hourly`,
-                                 wind_v = `10m_v_component_of_wind_daily_mean_of_1-hourly`,
-                                 dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean_of_1-hourly`,
-                                 temp_2m = `2m_temperature_daily_mean_of_1-hourly`,
-                                 surface_pressure = `surface_pressure_daily_mean_of_1-hourly`,
-                                 precip = `total_precipitation_daily_maximum_of_1-hourly`), 
-            by = c("grid_id_10km", "date")) 
-=======
   # left_join(era5_global %>% select(grid_id_10km = id_grid, date, 
   #                                  pbl_max = `boundary_layer_height_daily_maximum_of_1-hourly`,
   #                                  pbl_mean = `boundary_layer_height_daily_mean_of_1-hourly`,
@@ -327,7 +322,6 @@ aod_smoke_panel <- aod %>%
                                            surface_pressure = `surface_pressure_daily_mean`,
                                            precip = `total_precipitation_daily_total`), 
             by = c("grid_id_10km", "date"))
->>>>>>> Stashed changes
 
 set.seed(1)
 aod_smoke_panel %<>% 
@@ -340,7 +334,7 @@ aod_smoke_panel %<>%
 anomAOD_training = aod_smoke_panel %>% 
   filter(!is.na(aod_anom)) %>% 
   filter(!(date %in% smoke_missing_dates)) %>% 
-  mutate(month = as.factor(month))
+  mutate(month = factor(month, levels = 1:12))
 
 #run some checks
 # should only get 1 fold per 1km grid id 
