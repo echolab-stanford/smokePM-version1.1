@@ -1,8 +1,10 @@
-source("scripts/setup/00_01_load_packages.R")
-source("scripts/setup/00_02_load_functions.R")
-source("scripts/setup/00_03_load_paths.R")
-source("scripts/setup/00_04_load_settings.R")
-
+#source("scripts/setup/00_01_load_packages.R")
+#source("scripts/setup/00_02_load_functions.R")
+source("./setup/00_03_load_paths.R")
+#source("scripts/setup/00_04_load_settings.R")
+library(tidyverse)
+library(sf)
+library(data.table)
 #-------------------------------------------------------------------------------
 # Written by: Marissa Childs
 # Makes smoke PM2.5 training dataset.
@@ -20,21 +22,21 @@ end_month = "2023-06" # format(today() - months(2), "%Y-%m")
 year_months = format(seq.Date(ym(start_month), ym(end_month), by = "month"), "%Y-%m")
 
 # station locations and crosswalk to 10km grid
-epa_ll <- read_sf(file.path(path_data, "EPA", "epa_station_locations")) %>% 
+epa_ll <- read_sf(file.path(path_data_sherlock, "EPA", "EPA_station_locations_auto")) %>% 
   # stations with NA for grid cell are in HI or AK
   rename(grid_id_10km = grid_10km)
 epa_grid_cells <- epa_ll$grid_id_10km %>% unique()
 
 # smoke ----
 # results in the 10km grid ids and dates that are smoke days
-smoke_missing_dates = readRDS(file.path(path_data, "smoke", "smoke_dates_not_online.rds"))
+smoke_missing_dates = readRDS(file.path(path_data_sherlock, "smoke", "smoke_dates", "smoke_dates_not_online.rds"))
 smoke_missing_dates = ymd(smoke_missing_dates)
 
 
 smoke_days <- year_months %>% map_dfr(function(year_month) {
   y = substr(year_month, 1, 4)
   m = substr(year_month, 6, 7)
-  out_file = file.path(path_data, "3_intermediate", "filled_smoke", 
+  out_file = file.path(path_data_sherlock, "3_intermediate", "filled_smoke", 
                        sprintf("filled_smoke_days_%s_%s.rds", y, m))
   if (file.exists(out_file)) {
     out = readRDS(out_file)
@@ -50,21 +52,21 @@ smoke_days <- year_months %>% map_dfr(function(year_month) {
 smokePM <- year_months %>% map_dfr(function(year_month) {
   y = substr(year_month, 1, 4)
   m = substr(year_month, 6, 7)
-  out = readRDS(file.path(path_data, "3_intermediate", "station_smokePM", sprintf("station_smokePM_%s_%s.rds", y, m))) %>% 
+  out = readRDS(file.path(path_data_sherlock, "3_intermediate", "station_smokePM_auto", sprintf("station_smokePM_%s_%s.rds", y, m))) %>% 
     filter(smoke_day == 1 & !is.na(pm25) & !smoke_missing_date, lubridate::year(date) == as.integer(y))
   return(out)
 })
 
 # cross sectional variables ----
 # elevation
-elev <- read.csv(file.path(path_data, "2_from_EE", "elevation_avg_sd_10km_grid.csv")) %>% 
+elev <- read.csv(file.path(path_data_sherlock, "2_from_EE", "elevation_avg_sd_10km_grid.csv")) %>% 
   filter(ID %in% epa_grid_cells) %>%
   transmute(grid_id_10km = ID,
             elevation_stdDev = stdDev_stdDev,
             elevation_mean = mean)
 
 # nlcd
-nlcd <- read.csv(file.path(path_data, "2_from_EE", "NLCD_areas_10km_grid.csv")) %>% 
+nlcd <- read.csv(file.path(path_data_sherlock, "2_from_EE", "NLCD_areas_10km_grid.csv")) %>% 
   filter(ID %in% epa_grid_cells) %>%    
   select(ID, groups) %>%
   mutate(groups = gsub("\\[|\\]", "", groups), # get rid of outer brackets
@@ -90,7 +92,7 @@ nlcd <- read.csv(file.path(path_data, "2_from_EE", "NLCD_areas_10km_grid.csv")) 
   rename(grid_id_10km = ID)
 
 # add latitude and longitude
-cell_cent <- st_read(file.path(path_data, "1_grids", "grid_10km_wgs84")) %>% 
+cell_cent <- st_read(file.path(path_data_sherlock, "1_grids", "grid_10km_wgs84")) %>% 
   filter(ID %in% epa_grid_cells) %>%
   st_centroid %>%
   {cbind(., 
@@ -110,7 +112,7 @@ epa_grid_cells <- cell_cent %>% select(grid_id_10km = ID, lat, lon) %>%
 aot_anom = year_months %>% map_dfr(function(year_month) {
   y = substr(year_month, 1, 4)
   m = substr(year_month, 6, 7)
-  x = readRDS(file.path(path_data, "3_intermediate", "aot_anom", sprintf("aot_anom_%s_%s.rds", y, m))) %>% 
+  x = readRDS(file.path(path_data_sherlock, "3_intermediate", "aot_anom_auto", sprintf("aot_anom_%s_%s.rds", y, m))) %>% 
     filter(grid_id_10km %in% epa_grid_cells$grid_id_10km, lubridate::year(date) == as.integer(y))
   return(x)
 }) %>%
@@ -123,82 +125,108 @@ aot_anom = year_months %>% map_dfr(function(year_month) {
 
 
 # ERA5 ----
-era5_global_vars = c("boundary_layer_height_daily_maximum_of_1-hourly", 
-                     "boundary_layer_height_daily_mean_of_1-hourly", 
-                     "boundary_layer_height_daily_minimum_of_1-hourly", 
-                     "mean_sea_level_pressure_daily_mean_of_1-hourly")
-era5_global = expand.grid(year_month = year_months, variable = era5_global_vars)
-era5_global <- 1:nrow(era5_global) %>% map_dfr(function(row) {
-  year_month = era5_global[row, "year_month"]
-  y = substr(year_month, 1, 4)
-  m = substr(year_month, 6, 7)
-  
-  v = era5_global[row, "variable"]
-  
-  subdir = v
-  if (year_month == year_months[1]) print(paste(v))
-  new_name = as.character(v)
-  s = gsub("_of_1-hourly", "", v)
-  v = gsub("_daily_.*", "", v)
-  old_name = v
-  s = gsub(paste0("^", v), "", s)
-  
-  subsubdir = gsub(paste0(v, "_"), "", subdir)
-  
-  out = readRDS(file.path(path_data, "ERA5_variables", "Global", sprintf("%s", v), "USA", "10km_grid", "UTC-0600", 
-                          sprintf("%s", subsubdir), sprintf("grid_%s%s_%s_%s.rds", v, s, y, m))) %>% 
-    filter(id_grid %in% epa_grid_cells$grid_id_10km) %>% 
-    rename(value := !!old_name) %>% 
-    mutate(var = new_name)
-  
-  return(out)
-})
-era5_global %<>% pivot_wider(values_from = value, names_from = var)
+# era5_global_vars = c("boundary_layer_height_daily_maximum_of_1-hourly", 
+#                      "boundary_layer_height_daily_mean_of_1-hourly", 
+#                      "boundary_layer_height_daily_minimum_of_1-hourly", 
+#                      "mean_sea_level_pressure_daily_mean_of_1-hourly")
+# era5_global = expand.grid(year_month = year_months, variable = era5_global_vars)
+# era5_global <- 1:nrow(era5_global) %>% map_dfr(function(row) {
+#   year_month = era5_global[row, "year_month"]
+#   y = substr(year_month, 1, 4)
+#   m = substr(year_month, 6, 7)
+#   
+#   v = era5_global[row, "variable"]
+#   
+#   subdir = v
+#   if (year_month == year_months[1]) print(paste(v))
+#   new_name = as.character(v)
+#   s = gsub("_of_1-hourly", "", v)
+#   v = gsub("_daily_.*", "", v)
+#   old_name = v
+#   s = gsub(paste0("^", v), "", s)
+#   
+#   subsubdir = gsub(paste0(v, "_"), "", subdir)
+#   
+#   out = readRDS(file.path(path_data, "ERA5_variables", "Global", sprintf("%s", v), "USA", "10km_grid", "UTC-0600", 
+#                           sprintf("%s", subsubdir), sprintf("grid_%s%s_%s_%s.rds", v, s, y, m))) %>% 
+#     filter(id_grid %in% epa_grid_cells$grid_id_10km) %>% 
+#     rename(value := !!old_name) %>% 
+#     mutate(var = new_name)
+#   
+#   return(out)
+# })
+# era5_global %<>% pivot_wider(values_from = value, names_from = var)
+# 
+# era5_land_vars = c("10m_u_component_of_wind_daily_mean_of_1-hourly", 
+#                    "10m_v_component_of_wind_daily_mean_of_1-hourly", 
+#                    "2m_dewpoint_temperature_daily_mean_of_1-hourly", 
+#                    "2m_temperature_daily_mean_of_1-hourly", 
+#                    "surface_pressure_daily_mean_of_1-hourly", 
+#                    "total_precipitation_daily_maximum_of_1-hourly")
+# era5_land = expand.grid(year_month = year_months, variable = era5_land_vars, stringsAsFactors = FALSE)
+# era5_land <- 1:nrow(era5_land) %>% map_dfr(function(row) {
+#   year_month = era5_land[row, "year_month"]
+#   y = substr(year_month, 1, 4)
+#   m = substr(year_month, 6, 7)
+#   
+#   v = era5_land[row, "variable"]
+#   subdir = v
+#   if (year_month == year_months[1]) print(paste(v))
+#   new_name = v
+#   s = gsub("_of_1-hourly", "", v)
+#   v = gsub("_daily_.*", "", v)
+#   old_name = v
+#   s = gsub(paste0("^", v), "", s)
+#   
+#   subsubdir = gsub(paste0(v, "_"), "", subdir)
+#   
+#   
+#   out = readRDS(file.path(path_data, "ERA5_variables", "Land", sprintf("%s", v), "USA", "10km_grid", 
+#                           ifelse(v == "total_precipitation", "UTC+0000", "UTC-0600"), 
+#                           sprintf("%s", subsubdir), sprintf("grid_%s%s_%s_%s.rds", v, s, y, m))) %>% 
+#     filter(id_grid %in% epa_grid_cells$grid_id_10km) %>% 
+#     rename(value := !!old_name) %>% 
+#     mutate(var = new_name)
+#   # rename(!!new_name := !!old_name)
+#   
+#   return(out)
+# })
+# 
+# era5_land %<>% pivot_wider(values_from = value, names_from = var)
 
-era5_land_vars = c("10m_u_component_of_wind_daily_mean_of_1-hourly", 
-                   "10m_v_component_of_wind_daily_mean_of_1-hourly", 
-                   "2m_dewpoint_temperature_daily_mean_of_1-hourly", 
-                   "2m_temperature_daily_mean_of_1-hourly", 
-                   "surface_pressure_daily_mean_of_1-hourly", 
-                   "total_precipitation_daily_maximum_of_1-hourly")
-era5_land = expand.grid(year_month = year_months, variable = era5_land_vars, stringsAsFactors = FALSE)
-era5_land <- 1:nrow(era5_land) %>% map_dfr(function(row) {
-  year_month = era5_land[row, "year_month"]
-  y = substr(year_month, 1, 4)
-  m = substr(year_month, 6, 7)
-  
-  v = era5_land[row, "variable"]
-  subdir = v
-  if (year_month == year_months[1]) print(paste(v))
-  new_name = v
-  s = gsub("_of_1-hourly", "", v)
-  v = gsub("_daily_.*", "", v)
-  old_name = v
-  s = gsub(paste0("^", v), "", s)
-  
-  subsubdir = gsub(paste0(v, "_"), "", subdir)
-  
-  
-  out = readRDS(file.path(path_data, "ERA5_variables", "Land", sprintf("%s", v), "USA", "10km_grid", 
-                          ifelse(v == "total_precipitation", "UTC+0000", "UTC-0600"), 
-                          sprintf("%s", subsubdir), sprintf("grid_%s%s_%s_%s.rds", v, s, y, m))) %>% 
-    filter(id_grid %in% epa_grid_cells$grid_id_10km) %>% 
-    rename(value := !!old_name) %>% 
-    mutate(var = new_name)
-  # rename(!!new_name := !!old_name)
-  
-  return(out)
-})
 
-era5_land %<>% pivot_wider(values_from = value, names_from = var)
+era5_combined_grids<- c(year_months,
+                        seq.Date(ymd(paste0(tail(year_months, 1), "-01")),
+                                 by = "1 month", length.out = 2)[2] %>% 
+                          format("%Y-%m")) %>% 
+  map_dfr(function(year_month) { 
+    y = substr(year_month, 1, 4)
+    m = substr(year_month, 6, 7)
+    x = readRDS(file.path(path_data_sherlock, "ERA5_variables", "automated", "joined_grids", sprintf("era5_joined_grid_%s_%s", y, m))) %>% 
+      filter(id_grid %in% epa_grid_cells$grid_id_10km)
+    return(x)
+  })
+
+
+#change it to data.table format to filter ou NA's
+setDT(era5_combined_grids)
+era5_combined_grids <- era5_combined_grids[, lapply(.SD, function(x) if (all(is.na(x))) NA else x[which.max(!is.na(x))]), 
+                                           by = .(id_grid, date)]
+# lag precipitation since its 1 day off (first make sure its ordered by date)
+setorder(era5_combined_grids, date)
+era5_combined_grids <- era5_combined_grids[, total_precipitation_daily_total := shift(total_precipitation_daily_total, 1, NA, "lead"),
+                                           by = .(id_grid)]
+
+setDF(era5_combined_grids) #change it back to data frame
+
 
 # filled fire ----
-fire_dates_not_online = readRDS(file.path(path_data, "fire", "fire_dates_not_online.rds"))
-fire_dates_clusters_too_small = readRDS(file.path(path_data, "fire", "fire_dates_clusters_too_small.rds"))
+fire_dates_not_online = readRDS(file.path(path_data_sherlock, "fire", "fire_dates_auto", "fire_dates_not_online.rds"))
+fire_dates_clusters_too_small = readRDS(file.path(path_data_sherlock, "fire", "fire_dates_auto", "fire_dates_clusters_too_small.rds"))
 filled_fire = year_months %>% map_dfr(function(year_month) {
   y = substr(year_month, 1, 4)
   m = substr(year_month, 6, 7)
-  out_file = file.path(path_data, "3_intermediate", "filled_fire", sprintf("filled_distance_to_fire_cluster_%s_%s.rds", y, m))
+  out_file = file.path(path_data_sherlock, "3_intermediate", "filled_fire_auto", sprintf("filled_distance_to_fire_cluster_%s_%s.rds", y, m))
   if (file.exists(out_file)) {
     out = readRDS(out_file) %>% 
       filter(id_grid %in% epa_grid_cells$grid_id_10km) %>% 
@@ -212,7 +240,7 @@ filled_fire = year_months %>% map_dfr(function(year_month) {
 fire_dist = year_months %>% map_dfr(function(year_month) {
   y = substr(year_month, 1, 4)
   m = substr(year_month, 6, 7)
-  out = readRDS(file.path(path_data, "distance_to_fire_cluster", sprintf("grid_distance_to_fire_cluster_%s_%s.rds", y, m))) %>% 
+  out = readRDS(file.path(path_data_sherlock, "distance_to_fire_cluster_auto", sprintf("grid_distance_to_fire_cluster_%s_%s.rds", y, m))) %>% 
     filter(id_grid %in% epa_grid_cells$grid_id_10km) %>% 
     select(id_grid, date, km_dist, area, num_points)
   return(out)
@@ -236,36 +264,36 @@ rm(filled_fire)
 #   })
 
 
-aod_pred <- list.files(file.path(path_output, sprintf("version%s", model_version), "anomAOD", "predictions", "10km_smoke_days"),
+aod_pred <- list.files(file.path(path_output_sherlock, sprintf("version%s", model_version), "anomAOD", "revisions", "predictions", "10km_smoke_days"),
                        full.names = TRUE, pattern = "rds") %>%
   purrr::map_dfr(function(x){readRDS(x) %>% filter(grid_id_10km %in% epa_grid_cells$grid_id_10km)})
 
 
-# AOD percent missing ----
-aod_missing = year_months %>% map_dfr(function(year_month) {
-  y = substr(year_month, 1, 4)
-  m = substr(year_month, 6, 7)
-  out = list.files(file.path(path_data, "2_from_EE", "maiac_AODmissings"), 
-                   pattern = sprintf("^aod_pctMissing_10km_subgrid_[0-9]*_%s_%s.csv$", y, m), 
-                   full.names = T) %>% 
-    map_dfr(function(file) {
-      out = read.csv(file) %>% 
-        mutate(date = as.Date(as.character(start_date), format = "%Y%m%d")) %>% 
-        rename(AODmissing = mean, 
-               grid_id_10km = ID) %>% 
-        filter(grid_id_10km %in% epa_grid_cells$grid_id_10km)
-      return(out)
-    })
-  return(out)
-})
+# # AOD percent missing ----
+# aod_missing = year_months %>% map_dfr(function(year_month) {
+#   y = substr(year_month, 1, 4)
+#   m = substr(year_month, 6, 7)
+#   out = list.files(file.path(path_data_sherlock, "2_from_EE", "maiac_AODmissings"), 
+#                    pattern = sprintf("^aod_pctMissing_10km_subgrid_[0-9]*_%s_%s.csv$", y, m), 
+#                    full.names = T) %>% 
+#     map_dfr(function(file) {
+#       out = read.csv(file) %>% 
+#         mutate(date = as.Date(as.character(start_date), format = "%Y%m%d")) %>% 
+#         rename(AODmissing = mean, 
+#                grid_id_10km = ID) %>% 
+#         filter(grid_id_10km %in% epa_grid_cells$grid_id_10km)
+#       return(out)
+#     })
+#   return(out)
+# })
 
-era5_global <- era5_global %>%
-  group_by(id_grid, date) %>%
-  summarize_all(~ ifelse(all(is.na(.)), NA, first(na.omit(.))))
-
-era5_land <- era5_land %>%
-  group_by(id_grid, date) %>%
-  summarize_all(~ ifelse(all(is.na(.)), NA, first(na.omit(.))))
+# era5_global <- era5_global %>%
+#   group_by(id_grid, date) %>%
+#   summarize_all(~ ifelse(all(is.na(.)), NA, first(na.omit(.))))
+# 
+# era5_land <- era5_land %>%
+#   group_by(id_grid, date) %>%
+#   summarize_all(~ ifelse(all(is.na(.)), NA, first(na.omit(.))))
 
 # combine data sets ----
 pred_data <- smokePM %>% 
@@ -277,34 +305,47 @@ pred_data <- smokePM %>%
             by = c("grid_id_10km", "date")) %>% 
   left_join(aod_pred %>% mutate(across(.fns = unname)), 
             by = c("grid_id_10km", "date")) %>% 
-  left_join(aod_missing %>% select(grid_id_10km, AODmissing, date), 
-            by = c("grid_id_10km", "date")) %>% 
+  # left_join(aod_missing %>% select(grid_id_10km, AODmissing, date), 
+  #           by = c("grid_id_10km", "date")) %>% 
   left_join(fire_dist %>% select(grid_id_10km = id_grid, 
                                  date, 
                                  fire_dist_km = km_dist, 
                                  closest_fire_area = area, 
                                  closest_fire_num_points = num_points), 
             by = c("grid_id_10km", "date")) %>% 
-  left_join(era5_global %>% select(grid_id_10km = id_grid, 
-                                   date, 
-                                   pbl_max = `boundary_layer_height_daily_maximum_of_1-hourly`,
-                                   pbl_mean = `boundary_layer_height_daily_mean_of_1-hourly`,
-                                   pbl_min = `boundary_layer_height_daily_minimum_of_1-hourly`,
-                                   sea_level_pressure = `mean_sea_level_pressure_daily_mean_of_1-hourly`), 
-            by = c("grid_id_10km", "date")) %>% 
-  left_join(era5_land %>% select(grid_id_10km = id_grid, 
-                                 date, 
-                                 wind_u = `10m_u_component_of_wind_daily_mean_of_1-hourly`,
-                                 wind_v = `10m_v_component_of_wind_daily_mean_of_1-hourly`,
-                                 dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean_of_1-hourly`,
-                                 temp_2m = `2m_temperature_daily_mean_of_1-hourly`,
-                                 surface_pressure = `surface_pressure_daily_mean_of_1-hourly`,
-                                 precip = `total_precipitation_daily_maximum_of_1-hourly`), 
+  # left_join(era5_global %>% select(grid_id_10km = id_grid, 
+  #                                  date, 
+  #                                  pbl_max = `boundary_layer_height_daily_maximum_of_1-hourly`,
+  #                                  pbl_mean = `boundary_layer_height_daily_mean_of_1-hourly`,
+  #                                  pbl_min = `boundary_layer_height_daily_minimum_of_1-hourly`,
+  #                                  sea_level_pressure = `mean_sea_level_pressure_daily_mean_of_1-hourly`), 
+  #           by = c("grid_id_10km", "date")) %>% 
+  # left_join(era5_land %>% select(grid_id_10km = id_grid, 
+  #                                date, 
+  #                                wind_u = `10m_u_component_of_wind_daily_mean_of_1-hourly`,
+  #                                wind_v = `10m_v_component_of_wind_daily_mean_of_1-hourly`,
+  #                                dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean_of_1-hourly`,
+  #                                temp_2m = `2m_temperature_daily_mean_of_1-hourly`,
+  #                                surface_pressure = `surface_pressure_daily_mean_of_1-hourly`,
+  #                                precip = `total_precipitation_daily_maximum_of_1-hourly`), 
+  #           by = c("grid_id_10km", "date"))
+  left_join(era5_combined_grids %>% select(grid_id_10km = id_grid, date, 
+                                           pbl_max = `boundary_layer_height_daily_maximum`,
+                                           pbl_mean = `boundary_layer_height_daily_mean`,
+                                           pbl_min = `boundary_layer_height_daily_minimum`,
+                                           sea_level_pressure = `mean_sea_level_pressure_daily_mean`,
+                                           wind_u = `10m_u_component_of_wind_daily_mean`,
+                                           wind_v = `10m_v_component_of_wind_daily_mean`,
+                                           dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean`,
+                                           temp_2m = `2m_temperature_daily_mean`,
+                                           surface_pressure = `surface_pressure_daily_mean`,
+                                           precip = `total_precipitation_daily_total`), 
             by = c("grid_id_10km", "date"))
 
+
 # partition according to 5 spatial folds based on merra2 grid cells
-grid_merra = raster(file.path(path_data, "1_grids", "merra_folds.nc"))
-grid_10km = st_read(file.path(path_data, "1_grids", "grid_10km_wgs84"))
+grid_merra = raster(file.path(path_data_sherlock, "1_grids", "merra_folds.nc"))
+grid_10km = st_read(file.path(path_data_sherlock, "1_grids", "grid_10km_wgs84"))
 epa_grid_cells$cell_merra <- raster::cellFromXY(grid_merra, 
                                                 grid_10km %>% filter(ID %in% epa_grid_cells$grid_id_10km) %>% st_centroid() %>% st_coordinates)
 epa_grid_cells = epa_grid_cells %>% mutate(fold = grid_merra[cell_merra])
@@ -323,8 +364,8 @@ interp_all = expand.grid(x = c(1:5),
   filter(x >= y) %>% 
   pmap(function(x, y){
     j = c(x, y)
-    readRDS(file.path(path_output, sprintf("version%s", model_version), "smokePM_interpolation", 
-                      paste0("interp_drop", paste0(j, collapse = ""), ".rds"))) %>% 
+    readRDS(file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM_interpolation", "revisions", "best_interp",
+                      paste0("interp_drop", paste0(j, collapse = ""), "_200601_202306.rds"))) %>% 
       mutate(drop_fold = paste0(unique(j), collapse = ""))
   }) %>% list_rbind
 
@@ -355,4 +396,4 @@ smokePM_training %>%
   distinct %>% 
   filter(!(date %in% smoke_missing_dates)) %>% 
   drop_na(smokePM) %>% 
-  saveRDS(file.path(path_output, sprintf("version%s", model_version), "smokePM", "smokePM_training.rds"))
+  saveRDS(file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "smokePM_training.rds"))
