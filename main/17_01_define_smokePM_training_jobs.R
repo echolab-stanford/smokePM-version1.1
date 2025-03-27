@@ -15,8 +15,8 @@ model_version = "1.1"
 #-#-----------------------------------------------------------------------------
 # csv with jobs to submit 
 expand.grid(cv_fold_num = c(1:5),
-            cv_end_date = "2023-06-30",
-            drop_vars = c("NONE", "aod_anom_pred", "interp")) %>%
+            drop_vars = c("NONE", "aod_anom_pred", "interp"),
+            cv_end_date = "2023-06-30") %>%
   write.table(file.path(path_output, sprintf("version%s", model_version), "smokePM", "smokePM_training_jobs.csv"), 
               row.names = FALSE, col.names = FALSE, sep = ",")
 

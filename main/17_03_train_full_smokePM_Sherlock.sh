@@ -12,4 +12,4 @@
 
 ml R/4.0.2
 
-Rscript scripts/main/16_03_train_smokePM_Sherlock.R 99 "aod_anom_pred" "2023-12-31"
+Rscript scripts/main/16_03_train_smokePM_Sherlock.R 99 "aod_anom_pred" "2024-12-31" "smokePM_full_model_training.rds"

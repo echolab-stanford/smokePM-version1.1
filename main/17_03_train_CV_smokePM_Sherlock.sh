@@ -1,7 +1,7 @@
 #!/bin/bash
 export IFS=","
 
-cat $GROUP_HOME/smokePM_prediction/output/version1.1/smokePM/smokePM_training_jobs.csv | while read a b c; do 
+cat $GROUP_HOME/smokePM-prediction/output/version1.1/smokePM/smokePM_training_jobs.csv | while read a b c; do 
 
 job_file="train_smokePM_fold${a}_drop${b}_end${c}.job"
 
@@ -19,7 +19,7 @@ echo "#!/bin/bash
 
 ml R/4.0.2
 
-Rscript scripts/main/16_03_train_smokePM_Sherlock.R "$a" "$b" "$c" " > $job_file
+Rscript scripts/main/16_03_train_smokePM_Sherlock.R "$a" "$b" "$c" 'smokePM_CV_training.rds' " > $job_file
 
     sbatch $job_file
 

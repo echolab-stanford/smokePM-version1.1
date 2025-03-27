@@ -9,9 +9,9 @@ library(tidyverse)
 library(magrittr)
 library(xgboost)
 library(rBayesianOptimization)
-source("scripts/setup/00_02_load_functions.R")
+#source("scripts/setup/00_02_load_functions.R")
 source("scripts/setup/00_03_load_paths.R")
-source("scripts/setup/00_04_load_settings.R")
+#source("scripts/setup/00_04_load_settings.R")
 #-------------------------------------------------------------------------------
 # Written by: Marissa Childs
 # Trains smoke PM2.5 model.
@@ -25,12 +25,13 @@ args <- commandArgs(TRUE)
 cv_fold_num <- as.numeric(args[1])
 drop_vars <- strsplit(args[2], split = "-")[[1]] # second arg should be any character strings of variables to be dropped separated by dashes, matches are on containment of that string in the column name
 model_end_date <- as.Date(args[3], format = "%Y-%m-%d")
+training_df<- args[4]
 
 print(paste0("tuning model, excluding fold ", cv_fold_num))
 print(paste0("excluding variables with names containing ",
              paste0(drop_vars, collapse = " or ")))
 
-txt_progress_file <- file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "model", 
+txt_progress_file <- file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model", 
                                paste0("smokePM_xgb_progress_fold", cv_fold_num, 
                                       paste0(c("_drop", drop_vars), collapse = "-"), ".txt"))
 max_xgb_rounds <- 10000
@@ -54,10 +55,17 @@ if (Sys.getenv('SLURM_JOB_ID') != "") {
 
 print(paste0("there are ", usable.cores, " usable cores, and at most ", max_cores, " will be used for xgb model training"))
 
-pred_data <- rbind(readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "smokePM_training.rds")), 
-                  readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "smokePM_2023_Jul_Dec_training.rds")) %>% 
-                    mutate(month = as.character(month) %>% factor(levels = 1:12)) %>% 
-                    filter(date > as.Date("2023-06-30"))) %>% 
+# pred_data <- rbind(readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "smokePM_training.rds")), 
+#                   readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "smokePM_2023_Jul_Dec_training.rds")) %>% 
+#                     mutate(month = as.character(month) %>% factor(levels = 1:12)) %>% 
+#                     filter(date > as.Date("2023-06-30"))) %>% 
+#   # identify and rename the relevant column with interpolated smoke PM depending on which fold is being left out of sample
+#   rename_with(~gsub(paste0("fold", cv_fold_num), "smokePM", .x), 
+#               .cols = all_of(paste0("fold", cv_fold_num, "_interp"))) %>% 
+#   filter(date <= model_end_date)
+
+pred_data<- readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", training_df)) %>% 
+  mutate(month = as.character(month) %>% factor(levels = 1:12)) %>% 
   # identify and rename the relevant column with interpolated smoke PM depending on which fold is being left out of sample
   rename_with(~gsub(paste0("fold", cv_fold_num), "smokePM", .x), 
               .cols = all_of(paste0("fold", cv_fold_num, "_interp"))) %>% 
@@ -171,7 +179,7 @@ toc <- Sys.time()
 toc - tic
 
 saveRDS(bayes_opt_params, 
-        file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "model", 
+        file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model", 
                   paste0("smokePM_bayes_opt_params_fold", cv_fold_num, 
                          paste0(c("_drop", drop_vars), collapse = "-"),
                          ".rds")))
@@ -190,7 +198,7 @@ mod_gb_final <- xgb.train(
   verbose = 1)
 
 xgb.save(mod_gb_final,
-         file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "model", 
+         file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model", 
                    paste0("smokePM_mod_fold", cv_fold_num, 
                           paste0(c("_drop", drop_vars), collapse = "-"),
                           ".xgb")))
@@ -222,7 +230,7 @@ preds <- pred_data %>%
   cbind(smokePM_pred = predict(mod_gb_final, xgb_pred_mat))
 
 saveRDS(preds, 
-        file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "model", paste0("smokePM_pred_fold", cv_fold_num, 
+        file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM","revisions", "model", paste0("smokePM_pred_fold", cv_fold_num, 
                                       paste0(c("_drop", drop_vars), collapse = "-"), 
                                       ".rds")))
 
@@ -249,7 +257,7 @@ feat_names <- model.matrix.lm(~.-1,
 
 saveRDS(list(variable_importance = var_import, 
              feature_names = feat_names), 
-        file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "model", 
+        file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model", 
                   paste0("smokePM_var_importance_fold", cv_fold_num, 
                          paste0(c("_drop", drop_vars), collapse = "-"),
                          ".rds")))
