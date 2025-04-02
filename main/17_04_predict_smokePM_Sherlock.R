@@ -5,6 +5,7 @@
 #-#-----------------------------------------------------------------------------
 
 sherlock = T
+library(sf)
 library(rlang)
 library(stringr)
 library(lubridate)
@@ -14,14 +15,15 @@ library(purrr)
 library(xgboost)
 library(foreach)
 library(doParallel)
-source("../setup/00_02_load_functions.R")
-source("../setup/00_03_load_paths.R")
-source("../setup/00_04_load_settings.R")
+library(tidyverse)
+#source("../setup/00_02_load_functions.R")
+source("./setup/00_03_load_paths.R")
+#source("../setup/00_04_load_settings.R")
 
 if (Sys.getenv('SLURM_JOB_ID') != "") {
   num_cores <- Sys.getenv("SLURM_CPUS_PER_TASK")
 } else {
-  num_cores <- 2
+  num_cores <- 4
 }
 
 #-------------------------------------------------------------------------------
@@ -34,21 +36,23 @@ model_version = "1.1"
 
 # Set date range to predict
 start_date = "20060101" # "20060101"
-end_date = "20231231" # format(today() - days(1), "%Y%m%d")
-data_start_date = "20060101" # when should the data start, used for determining whether to get previous month AOT
+end_date = "20241231" # format(today() - days(1), "%Y%m%d")
+data_start_date = "20060101"#"20060101" # when should the data start, used for determining whether to get previous month AOT
 
 # Set whether to overwrite preexisting files or not
 overwrite = T
 #-#-----------------------------------------------------------------------------
-
+path_data = path_data_sherlock 
 all_dates = seq.Date(ymd(start_date), ymd(end_date), by = "day")
 all_dates_str = format(all_dates, "%Y%m%d")
 year_months = unique(substr(all_dates, 1, 7))
 year_months = gsub("-", "_", year_months)
 
 # Load 2nd stage model for predicting smokePM - fold1_drop new CV model with interpolations Jun, 12
-xgb_mod <- xgb.load("/scratch/users/marissac/smoke_PM_prediction/output/version1.1/smokePM/model/smokePM_mod_fold99_drop-aod_anom_pred.xgb") #file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "model", "smokePM_mod_fold99_drop.xgb"))
-
+#xgb_mod <- xgb.load("/scratch/users/marissac/smoke_PM_prediction/output/version1.1/smokePM/model/smokePM_mod_fold99_drop-aod_anom_pred.xgb") #file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "model", "smokePM_mod_fold99_drop.xgb"))
+#xgb_mod<- xgb.load("~/BurkeLab Dropbox/projects/smokePM-prediction/output/version1.1/smokePM/model/smokePM_mod_fold99_drop-aod_anom_pred.xgb")
+#xgb_mod<- xgb.load("/home/groups/mburke/smokePM-prediction/output/version1.1/smokePM/model/smokePM_mod_fold99_drop-aod_anom_pred.xgb")
+xgb_mod <-xgb.load(file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model","smokePM_mod_fold1_drop-aod_anom_pred.xgb"))
 #-------------------------------------------------------------------------------
 #### Cross-sectional variables ####
 # Latitude and longitude
@@ -57,19 +61,19 @@ cell_cent = readRDS(file.path(path_data_sherlock, "1_grids", "10km_cell_centroid
 
 # Elevation
 print(paste("Elevation", "--------------------------------------------------"))
-start_time = get_start_time()
+#start_time = get_start_time()
 elev <- file.path(path_data_sherlock, "2_from_EE", "elevation_avg_sd_10km_grid_filled.csv") %>% 
   read.csv() %>% 
   select(grid_id_10km = ID, elevation_mean = mean, elevation_stdDev = stdDev_stdDev)
-print_time(start_time)
+#print_time(start_time)
 
 # NLCD
 # Takes a few hours
 print(paste("NLCD", "--------------------------------------------------"))
-start_time = get_start_time()
+#start_time = get_start_time()
 nlcd <- file.path(path_data_sherlock, "2_from_EE", "NLCD_areas_10km_grid_filled.csv") %>% 
   read.csv()
-print_time(start_time)
+#print_time(start_time)
 
 #-------------------------------------------------------------------------------
 #### Time-varying variables ####
@@ -80,10 +84,10 @@ out = vector("list", length(year_months))
 
 # Takes ~5-10 minutes per low-fire month and ~20-60 minutes per high-fire month
 registerDoParallel(num_cores)
-for (m in 1:length(year_months)) {
+for (m in 1:length(year_months)) { #year_month = "2006_01"
   year_month = year_months[m]
   print(paste(year_month, "--------------------------------------------------"))
-  start_time = get_start_time()
+  #start_time = get_start_time()
 
   y_str = substr(year_month, 1, 4)
   m_str = substr(year_month, 6, 7)
@@ -138,48 +142,18 @@ for (m in 1:length(year_months)) {
            month(date) == as.integer(m_str)) %>% 
     select(-orig)
 
-  # ERA5
-  era5_global = list.files(file.path(path_data_sherlock, "ERA5_variables", "Global"),
-                           full.names = T) %>% 
-    paste0("/USA/10km_grid/UTC-0600") %>% 
-    list.files(full.names = T) %>% 
-    map(function(x) {
-      x_name = str_split(x, pattern = "\\/")[[1]]
-      l_x_name = length(x_name)
-      old_name = x_name[l_x_name - 4]
-      new_name = x_name[c(l_x_name - 4, l_x_name)] %>% paste0(collapse = "_")
-      list.files(x, full.names = TRUE, pattern = year_month) %>%
-        map_dfr(function(x) readRDS(x)) %>%
-        rename(!!new_name := !!old_name)
-    }) %>%
-    reduce(.f = full_join, by = c("id_grid", "date"))
+  #ERA5
+  era5_grids = file.path(path_data_sherlock, "ERA5_variables", "automated", "joined_grids", sprintf("era5_joined_grid_%s", year_month))
+  era5_grid = readRDS(era5_grids) 
   
-  era5_land = list.files(file.path(path_data_sherlock, "ERA5_variables", "Land"),
-                         full.names = T) %>% 
-    {paste0(., "/USA/10km_grid/", ifelse(grepl("precipitation", .), "UTC+0000", "UTC-0600"))} %>%
-    list.files(full.names = TRUE) %>%
-    map(function(x) {
-      x_name = str_split(x, pattern = "\\/")[[1]]
-      l_x_name = length(x_name)
-      old_name = x_name[l_x_name - 4]
-      new_name = x_name[c(l_x_name - 4, l_x_name)] %>% paste0(collapse = "_")
-      list.files(x, full.names = TRUE, pattern = year_month) %>%
-        map_dfr(function(x) readRDS(x)) %>%
-        rename(!!new_name := !!old_name)
-    }) %>%
-    reduce(.f = full_join, by = c("id_grid", "date"))
-
-  # AOD missingness
-  aod_missing = list.files(file.path(path_data_sherlock, "2_from_EE", "maiac_AODmissings"), 
-                           pattern = sprintf("^aod_pctMissing_10km_subgrid_[0-9]*_%s_%s.csv$", y_str, m_str), 
-                           full.names = T) %>% 
-    map_dfr(function(file) {
-        out = read.csv(file) %>% 
-          mutate(date = as.Date(as.character(start_date), format = "%Y%m%d")) %>% 
-          rename(AODmissing = mean, 
-                 grid_id_10km = ID)
-        return(out)
-      })
+  #Precipitation values are the total for the previous day so we need to shift values up
+  era5_precip = era5_grid %>% 
+    dplyr::select(date, id_grid, total_precipitation_daily_total) %>% 
+    mutate(date = date - 1)
+  
+  era5_grid = era5_grid %>% 
+    dplyr::select(-total_precipitation_daily_total) %>% 
+    left_join(era5_precip) 
 
   # Fire
   fire_dist = file.path(path_data_sherlock, "distance_to_fire_cluster", 
@@ -194,25 +168,29 @@ for (m in 1:length(year_months)) {
   fire_dist = fire_dist %>% select(id_grid, date, km_dist, area, num_points)
   
   #Interpolations
-  interpolations = file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM_interpolation", "smoke_grid_cell", 
-                     sprintf("smokePM_interpolated_%s_%s.rds", y_str, m_str))
-  smoke_interpolation = readRDS(interpolations) %>% 
-    rename(smokePM_interp = interp)
+     interpolations =  file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM_interpolation", "revisions", "interpolations_full_model", 
+                      sprintf("smokePM_interpolated_%s_%s.rds", y_str, m_str))
+  
+    smoke_interpolation = readRDS(interpolations) %>% 
+    rename(grid_id_10km = id,
+      smokePM_interp = interp)
 
 
-  out_m = foreach(d = 1:length(dates_m), .combine = c) %do% {
+  out_m = foreach(d = 1:length(dates_m), .combine = c) %do% { 
     ymd_str = format(dates_m[d], "%Y%m%d")
-    out_file = file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "predictions", "10km_smoke_days",  #saving test of the new model Jun 12
-                      paste0("smokePM_predictions_10km_", ymd_str, ".rds"))
+    
+   out_file = file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "predictions",
+                     paste0("smokePM_predictions_10km_", ymd_str, ".rds"))
+   
     preexisting = file.exists(out_file)
     
-    if (overwrite | !preexisting) {
+  #  if (overwrite | !preexisting) {
       #### Predict smokePM #####------------------------------------------------------
       smoke_days_d = filled_smoke_days %>% filter(date == dates_m[d], smoke_day == 1)
       if (nrow(smoke_days_d) == 0) return(1)
       aot_d = aot %>% filter(date == dates_m[d])
-      era5_global_d = era5_global %>% filter(date == dates_m[d])
-      era5_land_d = era5_land %>% filter(date == dates_m[d])
+      era5_grid_d = era5_grid %>% filter(date == dates_m[d])
+
       fire_dist_d = fire_dist %>% filter(date == dates_m[d])
       interp_d = smoke_interpolation %>% filter(date == dates_m[d])
       
@@ -232,27 +210,23 @@ for (m in 1:length(year_months)) {
                                          closest_fire_area = area, 
                                          closest_fire_num_points = num_points), 
                   by = c("grid_id_10km", "date")) %>% 
-        left_join(era5_global_d %>% select(grid_id_10km = id_grid, 
-                                           date, 
-                                           pbl_max = `boundary_layer_height_daily_maximum_of_1-hourly`,
-                                           pbl_mean = `boundary_layer_height_daily_mean_of_1-hourly`,
-                                           pbl_min = `boundary_layer_height_daily_minimum_of_1-hourly`,
-                                           sea_level_pressure = `mean_sea_level_pressure_daily_mean_of_1-hourly`), 
-                  by = c("grid_id_10km", "date")) %>% 
-        inner_join(era5_land_d %>% select(grid_id_10km = id_grid, 
-                                          date, 
-                                          wind_u = `10m_u_component_of_wind_daily_mean_of_1-hourly`,
-                                          wind_v = `10m_v_component_of_wind_daily_mean_of_1-hourly`,
-                                          dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean_of_1-hourly`,
-                                          temp_2m = `2m_temperature_daily_mean_of_1-hourly`,
-                                          surface_pressure = `surface_pressure_daily_mean_of_1-hourly`,
-                                          precip = `total_precipitation_daily_maximum_of_1-hourly`) %>% 
-                     drop_na(), 
-                   by = c("grid_id_10km", "date")) %>% 
+        left_join(era5_grid_d %>%
+                    dplyr::select(grid_id_10km = id_grid,
+                                  date,
+                                  pbl_max = `boundary_layer_height_daily_maximum`,
+                                  pbl_mean = `boundary_layer_height_daily_mean`,
+                                  pbl_min = `boundary_layer_height_daily_minimum`,
+                                  sea_level_pressure = `mean_sea_level_pressure_daily_mean`,
+                                  precip = `total_precipitation_daily_total`,
+                                  wind_u = `10m_u_component_of_wind_daily_mean`,
+                                  wind_v = `10m_v_component_of_wind_daily_mean`,
+                                  dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean`,
+                                  temp_2m = `2m_temperature_daily_mean`,
+                                  surface_pressure = `surface_pressure_daily_mean`)%>%
+                    drop_na(),
+                  by = c("grid_id_10km", "date")) %>%
         # left_join(aod_d, 
         #           by = c("grid_id_10km", "date")) %>% 
-        left_join(aod_missing %>% select(grid_id_10km, AODmissing, date), 
-              by = c("grid_id_10km", "date")) %>% 
         left_join(interp_d, 
                   by = c("grid_id_10km", "date")) #joining interpolated values
       if (nrow(pred_data) == 0) return(2)
@@ -263,12 +237,11 @@ for (m in 1:length(year_months)) {
       if (nrow(pred_data) == 0) return(3)
       pred_data = pred_data %>% mutate(month = factor(as.integer(m_str), levels = 1:12))
 
-      # Get smokePM predictions
+      # Get smokePM predictions - THE VARIABLES NEED TO BE IN THIS EXACT ORDER AS THE MODEL WAS TRAINED
       pred_data_mat = pred_data %>% 
         select(month, lat, lon, 
                smokePM_interp,
                aot_anom, aot_anom_lag1, aot_anom_lag2, aot_anom_lag3, 
-               AODmissing, 
                fire_dist_km, closest_fire_area, closest_fire_num_points, 
                pbl_min, pbl_max, pbl_mean, 
                wind_u, wind_v, 
@@ -282,20 +255,23 @@ for (m in 1:length(year_months)) {
                                        data = pred_data_mat,
                                        na.action = "na.pass") %>% 
         xgb.DMatrix()
+      
       new_preds <- pred_data %>% 
-        {cbind(select(., grid_id_10km, date), 
+        {cbind(dplyr::select(., grid_id_10km, date), 
                smokePM_pred = predict(xgb_mod, pred_data_mat))}
       
+      #summary(new_preds)
       # save the 10km predictions 
       saveRDS(new_preds, out_file)
       print(paste(ymd_str, " - smokePM predictions saved"))
-      return(0)
-    }
+      return(new_preds)
+    #}
   }
   out[[m]] = out_m
-  print_time(start_time)
+  #print_time(start_time)
 }
 stopImplicitCluster()
+#out
 
 #-#-----------------------------------------------------------------------------
 # Run the line below uncommented on local machine to copy output folder from Oak 
