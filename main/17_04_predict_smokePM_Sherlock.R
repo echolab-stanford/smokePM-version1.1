@@ -154,6 +154,48 @@ for (m in 1:length(year_months)) { #year_month = "2006_01"
   era5_grid = era5_grid %>% 
     dplyr::select(-total_precipitation_daily_total) %>% 
     left_join(era5_precip) 
+  
+  # era5_global = list.files(file.path(path_data_sherlock, "ERA5_variables", "Global"),
+  #                          full.names = T) %>% 
+  #   paste0("/USA/10km_grid/UTC-0600") %>% 
+  #   list.files(full.names = T) %>% 
+  #   map(function(x) {
+  #     x_name = str_split(x, pattern = "\\/")[[1]]
+  #     l_x_name = length(x_name)
+  #     old_name = x_name[l_x_name - 4]
+  #     new_name = x_name[c(l_x_name - 4, l_x_name)] %>% paste0(collapse = "_")
+  #     list.files(x, full.names = TRUE, pattern = year_month) %>%
+  #       map_dfr(function(x) readRDS(x)) %>%
+  #       rename(!!new_name := !!old_name)
+  #   }) %>%
+  #   reduce(.f = full_join, by = c("id_grid", "date"))
+  # 
+  # era5_land = list.files(file.path(path_data_sherlock, "ERA5_variables", "Land"),
+  #                        full.names = T) %>% 
+  #   {paste0(., "/USA/10km_grid/", ifelse(grepl("precipitation", .), "UTC+0000", "UTC-0600"))} %>%
+  #   list.files(full.names = TRUE) %>%
+  #   map(function(x) {
+  #     x_name = str_split(x, pattern = "\\/")[[1]]
+  #     l_x_name = length(x_name)
+  #     old_name = x_name[l_x_name - 4]
+  #     new_name = x_name[c(l_x_name - 4, l_x_name)] %>% paste0(collapse = "_")
+  #     list.files(x, full.names = TRUE, pattern = year_month) %>%
+  #       map_dfr(function(x) readRDS(x)) %>%
+  #       rename(!!new_name := !!old_name)
+  #   }) %>%
+  #   reduce(.f = full_join, by = c("id_grid", "date"))
+
+  # AOD missingness
+  # aod_missing = list.files(file.path(path_data_sherlock, "2_from_EE", "maiac_AODmissings"), 
+  #                          pattern = sprintf("^aod_pctMissing_10km_subgrid_[0-9]*_%s_%s.csv$", y_str, m_str), 
+  #                          full.names = T) %>% 
+  #   map_dfr(function(file) {
+  #       out = read.csv(file) %>% 
+  #         mutate(date = as.Date(as.character(start_date), format = "%Y%m%d")) %>% 
+  #         rename(AODmissing = mean, 
+  #                grid_id_10km = ID)
+  #       return(out)
+  #     })
 
   # Fire
   fire_dist = file.path(path_data_sherlock, "distance_to_fire_cluster", 
@@ -168,7 +210,9 @@ for (m in 1:length(year_months)) { #year_month = "2006_01"
   fire_dist = fire_dist %>% select(id_grid, date, km_dist, area, num_points)
   
   #Interpolations
-     interpolations =  file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM_interpolation", "revisions", "interpolations_full_model", 
+ # interpolations = file.path("/scratch/users/mmarti04/smokePM-prediction/Local_dropbox/output/smokePM_interpolation/test_interp", #"/home/groups/mburke/smokePM-prediction/output/version1.1/smokePM_interpolation/smoke_grid_cell", 
+   #                          sprintf("smokePM_interpolated_%s_%s.rds", y_str, m_str))
+    interpolations =  file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM_interpolation", "revisions", "interpolations_full_model", 
                       sprintf("smokePM_interpolated_%s_%s.rds", y_str, m_str))
   
     smoke_interpolation = readRDS(interpolations) %>% 
@@ -190,7 +234,8 @@ for (m in 1:length(year_months)) { #year_month = "2006_01"
       if (nrow(smoke_days_d) == 0) return(1)
       aot_d = aot %>% filter(date == dates_m[d])
       era5_grid_d = era5_grid %>% filter(date == dates_m[d])
-
+      # era5_global_d = era5_global %>% filter(date == dates_m[d])
+      # era5_land_d = era5_land %>% filter(date == dates_m[d])
       fire_dist_d = fire_dist %>% filter(date == dates_m[d])
       interp_d = smoke_interpolation %>% filter(date == dates_m[d])
       
@@ -225,8 +270,27 @@ for (m in 1:length(year_months)) { #year_month = "2006_01"
                                   surface_pressure = `surface_pressure_daily_mean`)%>%
                     drop_na(),
                   by = c("grid_id_10km", "date")) %>%
+        # left_join(era5_global_d %>% select(grid_id_10km = id_grid, 
+        #                                    date, 
+        #                                    pbl_max = `boundary_layer_height_daily_maximum_of_1-hourly`,
+        #                                    pbl_mean = `boundary_layer_height_daily_mean_of_1-hourly`,
+        #                                    pbl_min = `boundary_layer_height_daily_minimum_of_1-hourly`,
+        #                                    sea_level_pressure = `mean_sea_level_pressure_daily_mean_of_1-hourly`), 
+        #           by = c("grid_id_10km", "date")) %>% 
+        # inner_join(era5_land_d %>% select(grid_id_10km = id_grid, 
+        #                                   date, 
+        #                                   wind_u = `10m_u_component_of_wind_daily_mean_of_1-hourly`,
+        #                                   wind_v = `10m_v_component_of_wind_daily_mean_of_1-hourly`,
+        #                                   dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean_of_1-hourly`,
+        #                                   temp_2m = `2m_temperature_daily_mean_of_1-hourly`,
+        #                                   surface_pressure = `surface_pressure_daily_mean_of_1-hourly`,
+        #                                   precip = `total_precipitation_daily_maximum_of_1-hourly`) %>% 
+        #              drop_na(), 
+        #            by = c("grid_id_10km", "date")) %>% 
         # left_join(aod_d, 
         #           by = c("grid_id_10km", "date")) %>% 
+        # left_join(aod_missing %>% select(grid_id_10km, AODmissing, date), #replace this with NAs for the test
+        #       by = c("grid_id_10km", "date")) %>% 
         left_join(interp_d, 
                   by = c("grid_id_10km", "date")) #joining interpolated values
       if (nrow(pred_data) == 0) return(2)
