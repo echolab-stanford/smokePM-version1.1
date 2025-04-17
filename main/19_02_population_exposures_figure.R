@@ -8,7 +8,7 @@ source("scripts/setup/00_03_load_paths.R")
 
 # load the 10km grid, the final predictions, and the population density in each 10km grid cell
 grid <- st_read(file.path(path_data, "1_grids", "grid_10km_wgs84"))
-smokePM_pred <- readRDS(file.path(path_output, "version1.1", "smokePM", "predictions", "smokePM_predictions_10km_20060101-20061231.rds"))
+smokePM_pred <- readRDS(file.path(path_output, "version1.1", "smokePM", "predictions", "smokePM_predictions_10km_20060101_20241231.rds"))
 pop <- list.files(file.path(path_data, "2_from_EE", "populationDensity_10km_subgrid"), 
                   full.names = TRUE) %>% 
   purrr::map(read.csv) %>% list_rbind
@@ -73,11 +73,15 @@ pop_exposure %>%
       geom_point(aes(alpha = I(ifelse(date_rank <= 10, 1, 0)))) + 
       # add labels to the right hand side for the average and recent years
       geom_text(data = filter(., !is.na(y_color)) %>% filter(day == max(day), .by = year),
-                aes(x = day + as.difftime(1, units = "days"), y = cum_smokePM, label = year),
+                aes(x = day + as.difftime(1, units = "days"), 
+                    y = cum_smokePM + case_when(year == 2024 ~ 15, 
+                                                year == 2021 ~ -15, 
+                                                T ~ 0), label = year),
+                # position = ggstance::position_dodgev(height = 20),
                 hjust = 0, lineheight = 0.75) +
       coord_cartesian(clip = "off") + 
       # adjust plot aesthetics and labels
-      scale_color_manual(values = c("black", MetBrewer::met.brewer("Juarez", 4))) + 
+      scale_color_manual(values = c("black", MetBrewer::met.brewer("Juarez", 5))) + 
       scale_x_date(date_labels = "%b",
                    breaks = seq.Date(as.Date("2000-02-01"), as.Date("2000-12-31"), by = "2 month"),
                    expand = expansion(mult = 0)) +

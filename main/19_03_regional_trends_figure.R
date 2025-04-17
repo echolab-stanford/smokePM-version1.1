@@ -10,17 +10,19 @@ nonContig_stateFIPS <- c("02","60","66","15","72","78","69")
 source("scripts/setup/00_03_load_paths.R")
 
 # load EPA station PM2.5 data
-stationPM <- list.files(file.path(path_data, "/3_intermediate/station_smokePM_update/"),
+stationPM <- list.files(file.path(path_data, "/3_intermediate/station_smokePM_auto/"),
                         full.names = T, pattern = "rds") %>% 
-  map(readRDS) %>% list_rbind %>% 
-  ungroup %>%
-  mutate(across(year:day, as.numeric))
+  map(readRDS) %>% list_rbind 
+
+stationPM %<>% mutate(year = as.numeric(year))
 
 # state to EPA region aggregation 
-regions = read.csv("./us_climate_regions.csv") %>% 
-  left_join(tigris::states() %>% 
-              st_drop_geometry() %>% 
-              select(state_code = STUSPS, state_num = GEOID))
+regions = read.csv("./data/us_climate_regions.csv") %>% 
+  # left_join(tigris::states(cb = TRUE) %>% 
+  #             st_drop_geometry() %>% 
+  #             select(state_code = STUSPS, state_num = GEOID))
+  # tigris doesn't seem to be working anymore, so here's a csv with state abbreviations and fips codes from https://gist.github.com/dantonnoriega/bf1acd2290e15b91e6710b6fd3be0a53#file-us-state-ansi-fips-csv
+  left_join(read.csv("data/us-state-ansi-fips.csv") %>% transmute(state_code = trimws(stusps), state_num = sprintf("%02d", st)))
 
 # calculate annual average total PM2.5 and nonsmoke PM2.5 at stations
 stationPM %>% 

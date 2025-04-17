@@ -7,7 +7,7 @@ source("scripts/setup/00_03_load_paths.R")
 
 # load the 10km grid and the daily smoke PM2.5 predictions 
 grid <- st_read(file.path(path_data, "1_grids", "grid_10km_wgs84"))
-smokePM_pred <- readRDS(file.path(path_output, "version1.1", "smokePM", "predictions", "smokePM_predictions_10km_20060101-20061231.rds"))
+smokePM_pred <- readRDS(file.path(path_output, "version1.1", "smokePM", "predictions", "smokePM_predictions_10km_20060101_20241231.rds"))
 
 # calculate annual average smoke PM2.5 in each year, by calculating sum then dividing by # of days in the year
 annual_smokePM <- smokePM_pred %>% 
@@ -45,5 +45,6 @@ right_join(grid,
       theme_void() + 
       theme(text = element_text(size = 20), 
             legend.position = "inside", 
-            legend.position.inside = c(0.8, 0.15))} %>% 
+            legend.position.inside = c(0.89, 0.12),
+            legend.title.position = "top")} %>% 
   ggsave(file.path(path_figures, "annual_small_multiples.png"), ., width = 15, height = 9.33)

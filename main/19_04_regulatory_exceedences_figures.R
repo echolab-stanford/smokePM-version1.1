@@ -13,15 +13,14 @@ my_quant = function(x, p){
   return(sort(x)[ceiling(length(x)*p)])
 }
 
-stationPM <- list.files(file.path(path_data, "/3_intermediate/station_smokePM_update/"),
+stationPM <- list.files(file.path(path_data, "/3_intermediate/station_smokePM_auto/"),
                         full.names = T, pattern = "rds") %>% 
   map(readRDS) %>% list_rbind %>% 
-  ungroup %>%
   mutate(across(year:day, as.numeric))
 
 # for each smoke PM threshold, calculate mean and 98th percentile of total PM for each year and station
 # this takes a few minutes to run 
-stationPM %>% ungroup %>%
+stationPM %>% 
   filter(!is.na(smokePM)) %>%
   filter(n() > 50, .by = c(id, year)) %>%
   transmute(id, date, year, pm25, 
@@ -78,7 +77,8 @@ threshold_annual %>%
       select(id, end_year, check_year, drop_gte, n_year, ends_with("_3yr")) %>%
       return
   }, .before = 2, .complete = T)}  -> threshold_3yr
-
+# saveRDS(list(yr3 = threshold_3yr, annual = threshold_annual), 
+#         "./scratch/attainment_dfs_2025april14.rds")
 threshold_3yr %>% 
   filter(check_year == end_year & n_year == 3) %>% 
   filter(drop_gte == Inf) %>%# take obs equivalent to dropping nothing
@@ -91,13 +91,18 @@ threshold_3yr %>%
                                      all_mean_3yr >= 9 & nonsmoke_mean_3yr < 9 ~ "non_from_smoke"),
          .by = c(end_year, check_year, id)) -> attainment_cat
 
-epa_ll <- st_read("~/BurkeLab Dropbox/projects/smokePM-prediction/data/EPA/epa_station_locations/") 
-states <- tigris::states(cb = TRUE)
+# epa_ll <- st_read("~/BurkeLab Dropbox/projects/smokePM-prediction/data/EPA/epa_station_locations/") 
+epa_ll = read_sf(file.path(path_data, "EPA_automated", "epa_station_locations")) %>% 
+  # stations with NA for grid cell are in HI or AK
+  rename(grid_id_10km = grid_10km)
+# states <- tigris::states(cb = TRUE)
+# since tigris wasn't working, this shapefile is downloaded from https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html --> states --> 1 : 20,000,000 (national)  shapefile 
+states <- read_sf("data/cb_2023_us_state_20m")
 nonContig_stateFIPS <- c("02","60","66","15","72","78","69")
 
 station_cat <- attainment_cat %>% 
   filter(end_year == check_year) %>%
-  filter(end_year >= 2019) %>%
+  filter(end_year >= 2020) %>%
   summarise(cat = case_when(all(Daily_extremes != "non_from_smoke") & 
                               all(Annual_averages != "non_from_smoke") ~ "unaffected", 
                             all(Daily_extremes != "non_from_smoke") & 
@@ -113,8 +118,8 @@ station_cat %>%
   left_join(epa_ll %>% rename(id = stn_id)) %>% 
   st_as_sf %>%
   {ggplot(.) + 
-      geom_sf(data = states %>% filter(STATEFP %in% nonContig_stateFIPS == FALSE), 
-              fill = "grey99") + 
+      geom_sf(data = states %>% filter(STATEFP %in% nonContig_stateFIPS == FALSE),
+              fill = "grey99") +
       geom_sf(aes(color = cat), size = 1.15) + 
       scale_color_manual(values = c("#ae3a4e","#3f2949", "#4885c1", "grey80")) + 
       theme_void() + 
@@ -218,7 +223,9 @@ attainment_cat %>%
   ylab("number of stations") -> attain_ts
 
 plot_grid(attain_ts + 
-            theme(plot.margin = unit(c(15, 5.5, 5.5, 5.5), "points")), 
+            theme(plot.margin = unit(c(15, 12, 5.5, 5.5), "points"), 
+                  axis.text = element_text(size = 11*0.7),
+                  panel.spacing.x = unit(1.3, "lines")), 
           ggdraw() +
             draw_plot(attain_map, 
                       -0.07, 0, 1, 1) +
@@ -232,8 +239,8 @@ plot_grid(attain_ts +
           vjust = 1.2,
           label_size = 13,
           labels = c("a) number of stations over regulatory threshold over time", 
-                     "b) spatial distribution of smoke-affected thresholds (2019 - 2023)")) %>% 
-  ggsave(filename = "./figures_v2/attainment.png", 
+                     "b) spatial distribution of smoke-affected thresholds (2020 - 2024)")) %>% 
+  ggsave(filename = file.path(path_figures, "attainment.png"), 
          height = 5, width = 6)
 
 rm(attain_legend, attain_ts, attain_map)
@@ -261,7 +268,7 @@ threshold_3yr %>%
 
 plot_grid(station_year_thresh %>% 
             filter(thresh_smokePM_both > 0 & thresh_smokePM_both < Inf) %>%
-            filter(end_year >= 2019) %>% 
+            filter(end_year >= 2020) %>% 
             mutate(end_year = paste0(end_year, " (n = ", n(), ")"), 
                    .by = end_year) %>% 
             mutate(year = as.factor(end_year)) %>%
@@ -277,7 +284,7 @@ plot_grid(station_year_thresh %>%
                   plot.margin = unit(c(15.5, 0, 5.5, 5.5), "points")), 
           epa_ll %>% rename(id = stn_id) %>% 
             full_join(station_year_thresh %>% 
-                        filter(end_year >= 2019) %>% 
+                        filter(end_year >= 2020) %>% 
                         summarise(final_pctDays = max(thresh_pctDays_both), 
                                   final_smokePM = min(thresh_smokePM_both), 
                                   class = case_when(final_pctDays <= 0 & final_smokePM == Inf ~ "in attainment\nwith smoke", 
@@ -324,7 +331,7 @@ plot_grid(station_year_thresh %>%
 
 # SI figure with cdf
 plot_pctDays_threshd <- station_year_thresh %>% 
-  filter(end_year == check_year & check_year >= 2019) %>% 
+  filter(end_year == check_year & check_year >= 2020) %>% 
   arrange(end_year, thresh_pctDays_both) %>%
   select(end_year, thresh_pctDays_both) %>%
   mutate(n_attain = 1:n(), 
@@ -348,6 +355,42 @@ plot_pctDays_threshd <- station_year_thresh %>%
   ylab("% of stations in attainment") + 
   theme_classic() + 
   theme(legend.position = "none")
+
+plot_smokePM_threshd <- station_year_thresh %>% 
+  filter(end_year == check_year & check_year >= 2020) %>% 
+  # arrange(end_year, thresh_pctDays_both) %>% 
+  # select(end_year, thresh_pctDays_both) %>% 
+  arrange(end_year, desc(thresh_smokePM_both)) %>% 
+  select(end_year, thresh_smokePM_both) %>% 
+  mutate(n_attain = 1:n(), 
+         .by = end_year) %>% 
+  filter(n_attain == max(n_attain),
+         .by = c(end_year, thresh_smokePM_both)) %>% 
+  # .by = c(end_year, thresh_pctDays_both)) %>%
+  mutate(pct_attain = n_attain/max(n_attain), 
+         .by = end_year) %>% 
+  # filter(thresh_pctDays_both < Inf) %>%
+  filter(thresh_smokePM_both > -Inf) %>% 
+  # filter(end_year == 2023) %>% pull(pct_attain) %>% range
+  # filter(end_year == 2023 & thresh_smokePM_both < 35) %>% 
+  mutate(end_year = as.factor(end_year)) %>%
+  ggplot(aes(y = pct_attain, 
+             # x = thresh_pctDays_both, 
+             x = thresh_smokePM_both,
+             group = end_year, 
+             color = end_year)) + 
+  geom_step() + 
+  scale_color_manual(name = "year", 
+                     values = rev(MetBrewer::met.brewer("Hiroshige", 9)[c(1, 2, 4, 7, 9)]), 
+                     aesthetics = c("color", "fill")) + 
+  # xlim(0, 0.1) + 
+  # xlab("% of days struck") + 
+  scale_x_reverse() + 
+  xlab(expression(paste("strike days with smoke ", PM[2.5], " > X ", mu, "g/", m^3))) + 
+  ylab("% of stations in attainment") + 
+  theme_classic() + 
+  theme(legend.position = "inside", 
+        legend.position.inside = c(0.2, 0.7))
 
 plot_grid(
   ggdraw(plot_pctDays_threshd + 
