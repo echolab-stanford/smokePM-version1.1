@@ -255,7 +255,7 @@ era5_combined_grids<- c(year_months,
 
 #change it to data.table format to filter ou NA's
 setDT(era5_combined_grids)
-era5_combined_grids <- era5_combined_grids[, lapply(.SD, function(x) if (all(is.na(x))) NA else x[which.max(!is.na(x))]), 
+era5_combined_grids <- era5_combined_grids[, lapply(.SD, function(x) if (all(is.na(x))) as.numeric(NA) else x[which.max(!is.na(x))]), 
                                            by = .(id_grid, date)]
 # lag precipitation since its 1 day off (first make sure its ordered by date)
 setorder(era5_combined_grids, date)
