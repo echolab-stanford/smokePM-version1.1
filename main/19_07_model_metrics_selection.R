@@ -20,7 +20,7 @@ all_cv_preds %<>% mutate(out_fold = str_split_i(file, "fold", 2) %>% str_split_i
                         drop_vars =  gsub(".*drop-|\\.rds", "", file), 
                         .keep = "unused") 
 
-# future predictions 
+# "future" predictions (i.e., july 2023 - dec 2024 for models trained through june 2023)
 all_cv_preds %<>% mutate(type = "current") %>% 
   rbind(file.path(path_output, "version1.1", "smokePM", "predictions_future", "smokePM_predictions_20230701_20241231.rds") %>% 
           readRDS %>%
@@ -46,10 +46,10 @@ model_metrics <- all_cv_preds %>%
                     out_fold = fold, 
                     drop_vars = "interp only") %>% 
           mutate(type = ifelse(date > as.Date("2023-06-30"), "future", "current"))) %>% 
+  mutate(smokePM_pred = pmax(smokePM_pred, 0)) %>% 
   filter(!is.na(out_fold)) %>%
   left_join(training_data %>% select(id, date, smokePM)) %>% 
-  mutate(test = out_fold == fold) %>% 
-  mutate(smokePM_pred = pmax(0, smokePM_pred),
+  mutate(test = out_fold == fold, 
          mod = paste0(type, "_", drop_vars)) %>% 
   filter(test == T, !is.na(smokePM)) %>% 
   eval_metrics(models = mod, test_tune = test, 
@@ -64,6 +64,16 @@ model_metrics %>%
   filter(grepl("day", subset)) %>% 
   filter(metric %in% c("rmse", "r2", "wr2", "me")) %>% 
   filter(test == TRUE) %>%
+  # add rows to force the y axes to 0 for r2 and within r2 
+  mutate(alpha = 1) %>%
+  rbind(data.frame(time = "current", 
+                   drop_vars = "aod", 
+                   test = TRUE, 
+                   metric = c("r2", "wr2"), 
+                   subset = "day", 
+                   rank = NA, 
+                   value = 0, 
+                   alpha = 0)) %>%
   mutate(subset = recode_factor(subset, 
                                 "day" = "all days", 
                                 "day_sub50" = "days with\n< 50ug",
@@ -80,14 +90,15 @@ model_metrics %>%
          drop_vars = case_when(drop_vars == "interpolations only" ~ "Raw interpolations", 
                                drop_vars == "No aod" ~ "No predicted\nAOD anomaly\n(preferred model)", 
                                T ~ drop_vars)) %>% 
+  
   mutate(time = ifelse(time == "future", "July 2023 - Dec 2024", "Jan 2006 - June 2023")) %>% 
   {plot_grid(ggplot(data = filter(., time == "Jan 2006 - June 2023"),  
                     aes(x = subset, y = value, color = drop_vars,
-                        group = drop_vars)) + 
+                        group = interaction(drop_vars, alpha), alpha = I(alpha))) + 
                geom_point() + 
                geom_line() + 
                scale_x_discrete(expand = expansion(mult = 0.04)) + 
-               scale_color_manual(values = c("#a82203", "#208cc0",  "#637b31", "#f1af3a")) +
+               scale_color_manual(values = c("#a82203", "#208cc0",  "#637b31", "#f1af3a", "white")) +
                # ylim(0, NA) +
                facet_wrap(~metric, scales = "free", 
                           strip.position = "left",
@@ -106,7 +117,8 @@ model_metrics %>%
                      strip.switch.pad.wrap = unit(-0.25, "lines")), 
              ggplot(data = filter(., drop_vars == "No predicted\nAOD anomaly\n(preferred model)"),
                     aes(x = subset, y = value, color = time,
-                        group = time, shape = time, linetype = time)) + 
+                        group = interaction(time, alpha), shape = time, linetype = time, 
+                        alpha = I(alpha))) + 
                geom_point() + 
                geom_line() + 
                facet_wrap( ~metric, scales = "free", 
@@ -129,53 +141,5 @@ model_metrics %>%
              vjust = 1.2,  hjust = -0.02, label_x = 0.01, 
              labels = c("a) CV model performance metrics for candidate models", 
                         "b) Out-of-temporal sample model performance metrics for preferred model"))} %>% 
-  ggsave(filename = "./figures_v2/model_metrics_selection.png", 
+  ggsave(filename = file.path(path_figures, "model_metrics_selection.png"), 
          width = 7*1.2, height = 7*1.2)
-
-# why is r2 so much better in july 2023 - dec 2024??
-all_cv_preds %>% 
-  filter(drop_vars == "aod_anom_pred", out_fold == fold) %>% 
-  left_join(training_data %>% select(id, date, smokePM)) %>% 
-  filter(!is.na(smokePM)) %>% 
-  mutate(type = paste0(type, ", n =", n()), 
-         .by = type) %>%
-  ggplot(aes(x = smokePM, y = smokePM_pred)) + 
-  geom_bin2d() + 
-  geom_abline(slope = 1, intercept = 0) + 
-  facet_wrap(~type) + 
-  scale_fill_viridis_c(trans = "pseudo_log") + 
-  scale_x_continuous(trans = "pseudo_log", breaks = c(0, 1, 5, 10, 50, 100, 200, 500)) + 
-  scale_y_continuous(trans = "pseudo_log") + 
-  theme_classic()
-
-# is the distribution of observed smoke PM different? or the geographic locations?
-
-all_cv_preds %>% 
-  filter(drop_vars == "aod_anom_pred", out_fold == fold) %>% 
-  left_join(training_data %>% select(id, date, smokePM)) %>% 
-  filter(!is.na(smokePM)) %>% 
-  # filter(date < as.Date("2024-01-01")) %>%
-  # summarise(r2 = cor(smokePM, smokePM_pred)^2, .by = type)
-  ggplot(aes(x = smokePM)) + 
-  geom_density(aes(color = type, fill = type), alpha = 0.4) + 
-  scale_x_continuous(trans = "pseudo_log", breaks = c(0, 1, 5, 10, 50, 100, 200, 500)) + 
-  theme_classic()
-# kinda, but not sure its enough to explain what we're seeing 
-
-epa_ll = read_sf(file.path(path_data, "EPA_automated", "epa_station_locations"))
-all_cv_preds %>% 
-  filter(drop_vars == "aod_anom_pred", out_fold == fold) %>% 
-  left_join(training_data %>% select(id, date, smokePM)) %>% 
-  filter(!is.na(smokePM)) %>% 
-  summarise(n = n(), 
-            .by = c(id, type)) %>% 
-  mutate(pct_obs = n/sum(n), 
-         .by = type) %>%
-  mutate(time = ifelse(type == "future", "July 2023 - Dec 2024", "Jan 2006 - June 2023")) %>% 
-  left_join(epa_ll %>% select(id = stn_id)) %>%
-  st_as_sf %>%
-  ggplot() + 
-  geom_sf(aes(color = pct_obs)) + 
-  scale_color_viridis_c() + 
-  facet_wrap(~time) + 
-  theme_void()

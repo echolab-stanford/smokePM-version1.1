@@ -183,7 +183,7 @@ features_map <- list(aot_anom = file.path(path_data, "3_intermediate", "aot_anom
                        readRDS %>% 
                        filter(date == fig1_date) %>% 
                        select(grid_id_10km = id, value = interp),
-                     elevation = file.path(path_data, "2_from_EE", "elevation_avg_sd_10km_grid_filled.csv") %>% 
+                     elevation = file.path(path_data, "2_from_EE", "elevation_10km", "elevation_avg_sd_10km_grid_filled.csv") %>% 
                        read.csv() %>% 
                        select(grid_id_10km = ID, 
                               value = mean))
@@ -264,6 +264,7 @@ gg_mapLayers <- list(list(i = 0,
 
 file.path(path_output, "version1.1", "smokePM", "predictions", "smokePM_predictions_10km_20060101_20241231.rds") %>% 
   readRDS %>%
+  mutate(smokePM_pred = pmax(smokePM_pred, 0)) %>% 
   filter(date == fig1_date) %>% 
   full_join(grid, by = c("grid_id_10km" = "ID")) %>% 
   st_as_sf %>%
