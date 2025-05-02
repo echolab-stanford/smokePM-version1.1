@@ -21,7 +21,6 @@ source("scripts/setup/00_04_load_settings.R")
 # Set model version
 model_version = "1.1"
 #-#-----------------------------------------------------------------------------
-
 txt_progress_file <- file.path(path_output_sherlock, sprintf("version%s", model_version), "anomAOD", "model", "aod_xgb_progress.txt")
 max_xgb_rounds <- 10000
 bayes_opt_n_init <- 24
@@ -86,7 +85,7 @@ xgb_opt_fun <- function(eta, gamma, max_depth, subsample, colsample_bytree,
 xgb_train_mat <- xgb.DMatrix(
   data = model.matrix.lm(~.-1, 
                          data = mod_data %>% 
-                           mutate(month = as.factor(month)) %>%
+                           mutate(month = as.factor(month, levels = 1:12)) %>%
                            select(month, lat, lon, aot_anom, 
                                   aot_anom_lag1, aot_anom_lag2, aot_anom_lag3, 
                                   fire_dist_km, closest_fire_area, closest_fire_num_points,

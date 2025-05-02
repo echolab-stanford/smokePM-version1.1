@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=24
 #SBATCH --mem-per-cpu=16GB
-#SBATCH --time=72:00:00
+#SBATCH --time=96:00:00
 #SBATCH --output=train_AOD.log
 #SBATCH --mail-type=ALL
 
