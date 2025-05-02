@@ -77,8 +77,7 @@ threshold_annual %>%
       select(id, end_year, check_year, drop_gte, n_year, ends_with("_3yr")) %>%
       return
   }, .before = 2, .complete = T)}  -> threshold_3yr
-# saveRDS(list(yr3 = threshold_3yr, annual = threshold_annual), 
-#         "./scratch/attainment_dfs_2025april14.rds")
+
 threshold_3yr %>% 
   filter(check_year == end_year & n_year == 3) %>% 
   filter(drop_gte == Inf) %>%# take obs equivalent to dropping nothing
@@ -131,9 +130,9 @@ biscale::bi_legend(pal = c("1-1" = "#cccccc",
                    dim = 2) + 
   xlab("daily extremes") + ylab("annual averages") + 
   scale_x_continuous(breaks = c(1, 2), 
-                     labels = c("status\nunchanged\nby smoke", "over limit\ndue to\nsmoke")) + 
+                     labels = c("status\nunchanged\nby smoke", "over limit\nwith smoke")) + 
   scale_y_continuous(breaks = c(1, 2), 
-                     labels = c("status\nunchanged\nby smoke", "over limit\ndue to\nsmoke")) + 
+                     labels = c("status\nunchanged\nby smoke", "over limit\nwith smoke")) + 
   geom_text(data = mutate(station_cat, 
                           x = cat %in% c("extreme", "both") + 1, 
                           y = cat %in% c("average", "both") + 1) %>% 
@@ -189,9 +188,9 @@ attainment_cat %>%
                               y = c(800, 1275, 
                                     850, 800), 
                               label = c("over threshold\nwithout smoke", 
-                                        "over threshold\ndue to smoke",
+                                        "over threshold\nwith smoke",
                                         "over threshold\nwithout smoke", 
-                                        "over threshold\ndue to smoke"),
+                                        "over threshold\nwith smoke"),
                               name = c(rep("Annual averages", 2),
                                        rep("Daily extremes", 2))), 
             aes(x = x, y = y, label = label), 
@@ -230,7 +229,7 @@ plot_grid(attain_ts +
             draw_plot(attain_map, 
                       -0.07, 0, 1, 1) +
             draw_plot(attain_legend + theme(plot.background = element_rect(fill = NA)), 
-                      0.5, 0, 0.7, 0.7) + 
+                      0.47, 0, 0.75, 0.75) + 
             theme(plot.margin = unit(c(10, 0, 0, 0), "points"), 
                   plot.background = element_rect(fill = "white", color = "white")), 
           rel_heights = c(0.9, 1),
@@ -449,5 +448,5 @@ station_year_thresh %>%
             strip.text = element_text(size = 11),
             axis.title.x = element_blank(),
             strip.placement = "outside")} %>% 
-  ggsave(filename = file.path(path_figures, "figS8_strike_explain.png"), 
+  ggsave(filename = file.path(path_figures, "strike_explain.png"), 
          width = 9*0.8, height = 8*0.8)
