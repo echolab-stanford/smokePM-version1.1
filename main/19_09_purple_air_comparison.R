@@ -65,19 +65,41 @@ smokePM_pred <- file.path(path_output, "version1.1", "smokePM", "predictions", "
   readRDS %>% 
   mutate(smokePM_pred = pmax(smokePM_pred, 0))
 
+smokePM_pred_v1 <- 
+  readRDS("output/version1.0/smokePM2pt5_predictions_daily_10km_20060101-20201231.rds") %>%
+  mutate(smokePM_pred = pmax(smokePM_pred, 0))
+
 purple %<>% 
-  left_join(smokePM_pred, 
+  left_join(smokePM_pred %>% rename(pred_new = smokePM_pred), 
+            by = c("date", "grid_10km" = "grid_id_10km"))  %>% 
+  left_join(smokePM_pred_v1 %>% rename(pred_old = smokePM_pred), 
             by = c("date", "grid_10km" = "grid_id_10km")) 
-rm(smokePM_pred)
+rm(smokePM_pred, smokePM_pred_v1)
 
 # filter to smoke days and plot comparison between purple air smoke PM2.5 and our predicted smoke PM2.5
 library(fixest)
-feols(smoke_pm_anom ~ smokePM_pred,  
+feols(smoke_pm_anom ~ pred_new,  
       data = purple %>% 
         mutate(smoke_pm_anom = pmax(0, smoke_pm_anom)) %>% 
         filter(smoke_day == 1) %>% 
         filter(nobs_3yr > 10 & nobs > 12)) %>% 
-  r2("r2") -> r2
+  r2("r2") -> r2_new_full
+
+feols(smoke_pm_anom ~ pred_new,  
+      data = purple %>% 
+        mutate(smoke_pm_anom = pmax(0, smoke_pm_anom)) %>% 
+        filter(year <= 2020) %>%
+        filter(smoke_day == 1) %>% 
+        filter(nobs_3yr > 10 & nobs > 12)) %>% 
+  r2("r2") -> r2_new_2020
+
+feols(smoke_pm_anom ~ pred_old,  
+      data = purple %>% 
+        mutate(smoke_pm_anom = pmax(0, smoke_pm_anom)) %>% 
+        filter(year <= 2020) %>%
+        filter(smoke_day == 1) %>% 
+        filter(nobs_3yr > 10 & nobs > 12)) %>% 
+  r2("r2") -> r2_old_2020
 
 nonContig_stateFIPS <- c("02","60","66","15","72","78","69")
 conus <-read_sf("data/cb_2023_us_state_20m") %>% filter(!(STATEFP %in% nonContig_stateFIPS))
@@ -126,31 +148,68 @@ plot_grid(
             ncol = 1, rel_heights = c(1, 1), hjust = -0.02,
             labels = c("a) locations of PurpleAir monitors",
                        "b) temporal distritbuion of obsevations")), 
-  purple %>% mutate(smoke_pm_anom = pmax(0, smoke_pm_anom)) %>% 
-    filter(smoke_day == 1) %>% 
-    filter(nobs_3yr > 10 & nobs > 12) %>%
-    ggplot(aes(x = smokePM_pred, y = smoke_pm_anom)) + 
-    geom_bin2d(bins = 60) + 
-    geom_abline(intercept = 0, slope = 1, color = "grey30") +
-    scale_fill_gradientn(colors = cmocean::cmocean('dense')(100),
-                         name = "# of obs",
-                         # cmocean::cmocean('thermal')(100),
-                         trans = "pseudo_log",
-                         breaks = c(0, 1, 10, 100, 1000, 10000)) +
-    scale_x_continuous(name = expression(predicted~smokePM[2.5]),#"predicted PM2.5",
-                       trans = "pseudo_log",
-                       breaks = c(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
-                       expand = c(0, 0)) +
-    scale_y_continuous(name = expression(observed~PurpleAir~smokePM[2.5]),#"observed PurpleAir PM2.5",
-                       trans = "pseudo_log",
-                       breaks = c(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
-                       expand = c(0, 0)) +
-    annotate("text", x = 10, y = 350, #label = expression('R^2 =', round(r2, 3))) + 
-             label = paste('R^2 == ', round(r2, 3)), parse = T, size = 6) + 
-    theme_classic() + theme(plot.margin = unit(c(20.5, -2, 5.5, 5.5), "points")), 
+  plot_grid(purple %>% mutate(smoke_pm_anom = pmax(0, smoke_pm_anom)) %>% 
+              filter(smoke_day == 1) %>% 
+              filter(nobs_3yr > 10 & nobs > 12) %>%
+              ggplot(aes(x = pred_new, y = smoke_pm_anom)) + 
+              geom_bin2d(bins = 60) + 
+              geom_abline(intercept = 0, slope = 1, color = "grey30") +
+              scale_fill_gradientn(colors = cmocean::cmocean('dense')(100),
+                                   name = "# of obs",
+                                   # cmocean::cmocean('thermal')(100),
+                                   trans = "pseudo_log",
+                                   breaks = c(0, 1, 10, 100, 1000, 10000)) +
+              scale_x_continuous(name = expression(predicted~smokePM[2.5]),#"predicted PM2.5",
+                                 trans = "pseudo_log",
+                                 breaks = c(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
+                                 expand = c(0, 0)) +
+              scale_y_continuous(name = expression(observed~PurpleAir~smokePM[2.5]),#"observed PurpleAir PM2.5",
+                                 trans = "pseudo_log",
+                                 breaks = c(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
+                                 expand = c(0, 0)) +
+              annotate("text", x = 10, y = 350, #label = expression('R^2 =', round(r2, 3))) + 
+                       label = paste('R^2 == ', round(r2_new_full, 3)), parse = T, size = 6) + 
+              theme_classic() + theme(plot.margin = unit(c(20.5, -2, 1, 5.5), "points")), 
+            purple %>% mutate(smoke_pm_anom = pmax(0, smoke_pm_anom)) %>% 
+              filter(smoke_day == 1) %>% 
+              filter(nobs_3yr > 10 & nobs > 12) %>%
+              filter(year <= 2020) %>%
+              pivot_longer(c(pred_new, pred_old)) %>% 
+              mutate(name = ifelse(name == "pred_new", "updated predictions", "Childs et al. 2022 predictions")) %>%
+              ggplot(aes(x = value, y = smoke_pm_anom)) + 
+              geom_bin2d(bins = 60) + 
+              geom_abline(intercept = 0, slope = 1, color = "grey30") +
+              facet_wrap(~name) + 
+              scale_fill_gradientn(colors = cmocean::cmocean('dense')(100),
+                                   name = "# of obs",
+                                   trans = "pseudo_log",
+                                   breaks = c(0, 1, 10, 100, 1000, 10000)) +
+              scale_x_continuous(name = expression(predicted~smokePM[2.5]), 
+                                 trans = "pseudo_log",
+                                 breaks = c(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
+                                 expand = c(0, 0)) +
+              scale_y_continuous(name = expression(observed~PurpleAir~smokePM[2.5]),#"observed PurpleAir PM2.5",
+                                 trans = "pseudo_log",
+                                 breaks = c(0, 1, 5, 10, 25, 50, 100, 250, 500, 1000),
+                                 expand = c(0, 0)) +
+              geom_text(data = data.frame(name = c("updated predictions", "Childs et al. 2022 predictions"), 
+                                          r2 = c(r2_new_2020, r2_old_2020)) %>% 
+                          mutate(lab = paste0('R^2 == ', round(r2, 3))), 
+                        mapping = aes(label = lab), 
+                        x = 1.5, y = 5.5, parse = T, size = 4, inherit.aes = FALSE) + 
+              # annotate("text", x = 10, y = 350, #label = expression('R^2 =', round(r2, 3))) + 
+              #          label = paste('R^2 == ', round(r2, 3)), parse = T, size = 6) + 
+              theme_classic() + 
+              theme(plot.margin = unit(c(12.5, -2, 5.5, 5.5), "points"), 
+                    text = element_text(size = 9.5),
+                    strip.background = element_blank()), 
+            rel_heights = c(1, 0.75),
+            hjust = -0.02,
+            labels = c("c) observed and predicted smoke PM2.5 (2016 - 2023)", 
+                       "d) observed and predicted smoke PM2.5 (2016 - 2020)"), 
+            nrow = 2, ncol = 1),
   nrow = 1, rel_widths = c(0.7, 1), 
-  labels = c("", "c) observed and predicted smoke PM2.5"), 
+  # labels = c("", "c) observed and predicted smoke PM2.5"), 
   hjust = -0.02) %>% 
   ggsave(filename = file.path(path_figures, "purpleair_comparison.png"), 
-         width = 9, height = 5, bg = "white")
-
+         width = 9, height = 6, bg = "white")
