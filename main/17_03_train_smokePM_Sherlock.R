@@ -5,7 +5,7 @@
 #-#-----------------------------------------------------------------------------
 
 sherlock = T
-library(tidyverse)
+library(dplyr)
 library(magrittr)
 library(xgboost)
 library(rBayesianOptimization)
@@ -34,10 +34,10 @@ print(paste0("excluding variables with names containing ",
 txt_progress_file <- file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model", 
                                paste0("smokePM_xgb_progress_fold", cv_fold_num, 
                                       paste0(c("_drop", drop_vars), collapse = "-"), ".txt"))
-max_xgb_rounds <- 10000
+max_xgb_rounds <- 8000
 bayes_opt_n_init <- 24
 bayes_opt_n_iter <- 16
-max_cores <- 8
+max_cores <- 6
 
 param_bounds <- list(
   eta = c(0.001, 0.1),
@@ -55,6 +55,20 @@ if (Sys.getenv('SLURM_JOB_ID') != "") {
 
 print(paste0("there are ", usable.cores, " usable cores, and at most ", max_cores, " will be used for xgb model training"))
 
+feature_cols = c("month", "lat", "lon", 
+                 "smokePM_interp",
+                 "aot_anom", "aot_anom_lag1", "aot_anom_lag2", "aot_anom_lag3", 
+                 "aod_anom_pred_0.00", "aod_anom_pred_0.25", "aod_anom_pred_0.50", 
+                 "aod_anom_pred_0.75", "aod_anom_pred_1.00", "aod_anom_pred_mean", 
+                 "fire_dist_km", "closest_fire_area", "closest_fire_num_points", 
+                 "pbl_min", "pbl_max", "pbl_mean", 
+                 "wind_u", "wind_v", 
+                 "dewpoint_temp_2m", "temp_2m", 
+                 "sea_level_pressure", "surface_pressure", "precip", 
+                 "elevation_mean", "elevation_stdDev", 
+                 "developed", "barren", "forest", "shrubland", "cultivated", 
+                 "wetlands", "herbaceous", "water")
+
 # pred_data <- rbind(readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "smokePM_training.rds")), 
 #                   readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "smokePM_2023_Jul_Dec_training.rds")) %>% 
 #                     mutate(month = as.character(month) %>% factor(levels = 1:12)) %>% 
@@ -64,8 +78,7 @@ print(paste0("there are ", usable.cores, " usable cores, and at most ", max_core
 #               .cols = all_of(paste0("fold", cv_fold_num, "_interp"))) %>% 
 #   filter(date <= model_end_date)
 
-pred_data<- readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", training_df)) %>% 
-  mutate(month = as.character(month) %>% factor(levels = 1:12)) %>% 
+pred_data <- readRDS(file.path(path_data_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", training_df)) %>% 
   # identify and rename the relevant column with interpolated smoke PM depending on which fold is being left out of sample
   rename_with(~gsub(paste0("fold", cv_fold_num), "smokePM", .x), 
               .cols = all_of(paste0("fold", cv_fold_num, "_interp"))) %>% 
@@ -77,20 +90,7 @@ mod_data <- pred_data %>%
 xgb_train_mat <- xgb.DMatrix(
   data = model.matrix.lm(~.-1, 
                          data = mod_data %>% 
-                           select(month, lat, lon, 
-                                  smokePM_interp,
-                                  aot_anom, aot_anom_lag1, aot_anom_lag2, aot_anom_lag3, 
-                                  aod_anom_pred_0.00, aod_anom_pred_0.25, aod_anom_pred_0.50, 
-                                  aod_anom_pred_0.75, aod_anom_pred_1.00, aod_anom_pred_mean, 
-                                  AODmissing, 
-                                  fire_dist_km, closest_fire_area, closest_fire_num_points, 
-                                  pbl_min, pbl_max, pbl_mean, 
-                                  wind_u, wind_v, 
-                                  dewpoint_temp_2m, temp_2m, 
-                                  sea_level_pressure, surface_pressure, precip, 
-                                  elevation_mean, elevation_stdDev, 
-                                  developed, barren, forest, shrubland, cultivated, 
-                                  wetlands, herbaceous, water) %>% 
+                           select(all_of(feature_cols)) %>% 
                            select(-contains(drop_vars, ignore.case = FALSE)),
                          na.action = "na.pass"), 
   label = mod_data %>% 
@@ -207,20 +207,7 @@ xgb.save(mod_gb_final,
 xgb_pred_mat <- xgb.DMatrix(
   data = model.matrix.lm(~.-1, 
                          data = pred_data %>% 
-                           select(month, lat, lon, 
-                                  smokePM_interp,
-                                  aot_anom, aot_anom_lag1, aot_anom_lag2, aot_anom_lag3, 
-                                  aod_anom_pred_0.00, aod_anom_pred_0.25, aod_anom_pred_0.50, 
-                                  aod_anom_pred_0.75, aod_anom_pred_1.00, aod_anom_pred_mean, 
-                                  AODmissing, 
-                                  fire_dist_km, closest_fire_area, closest_fire_num_points, 
-                                  pbl_min, pbl_max, pbl_mean, 
-                                  wind_u, wind_v, 
-                                  dewpoint_temp_2m, temp_2m, 
-                                  sea_level_pressure, surface_pressure, precip, 
-                                  elevation_mean, elevation_stdDev, 
-                                  developed, barren, forest, shrubland, cultivated, 
-                                  wetlands, herbaceous, water) %>% 
+                           select(all_of(feature_cols)) %>% 
                            select(-contains(drop_vars, ignore.case = FALSE)),
                          na.action = "na.pass"),
   nthread = min(usable.cores, max_cores))
@@ -236,27 +223,8 @@ saveRDS(preds,
 
 # time permitting, calculate and save the variable importance
 var_import <-  xgb.importance(model = mod_gb_final)
-feat_names <- model.matrix.lm(~.-1, 
-                              data = mod_data %>% 
-                                select(month, lat, lon, 
-                                       smokePM_interp,
-                                       aot_anom, aot_anom_lag1, aot_anom_lag2, aot_anom_lag3, 
-                                       aod_anom_pred_0.00, aod_anom_pred_0.25, aod_anom_pred_0.50, 
-                                       aod_anom_pred_0.75, aod_anom_pred_1.00, aod_anom_pred_mean, 
-                                       AODmissing, 
-                                       fire_dist_km, closest_fire_area, closest_fire_num_points, 
-                                       pbl_min, pbl_max, pbl_mean, 
-                                       wind_u, wind_v, 
-                                       dewpoint_temp_2m, temp_2m, 
-                                       sea_level_pressure, surface_pressure, precip, 
-                                       elevation_mean, elevation_stdDev, 
-                                       developed, barren, forest, shrubland, cultivated, 
-                                       wetlands, herbaceous, water) %>% 
-                                select(-contains(drop_vars, ignore.case = FALSE)),
-                              na.action = "na.pass") %>% colnames
 
-saveRDS(list(variable_importance = var_import, 
-             feature_names = feat_names), 
+saveRDS(var_import,
         file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model", 
                   paste0("smokePM_var_importance_fold", cv_fold_num, 
                          paste0(c("_drop", drop_vars), collapse = "-"),
