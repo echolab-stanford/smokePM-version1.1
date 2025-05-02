@@ -50,15 +50,11 @@ pop_exposure %>%
                   type = "average", 
                   y_color = "2006-2019\naverage"))} %>% 
   mutate(date_rank = rank(desc(avg_smokePM))) %>% 
-  arrange(year, day) %>%
-  filter(!is.na(y_color)) %>% 
-  mutate(cum_smokePM = cumsum(avg_smokePM), 
-         smoke_season_started = cum_smokePM > 50,
-         smoke_season_day = avg_smokePM > 1,
-         smoke_season_day_start = min(day[smoke_season_day]), 
-         smoke_season_day_end = max(day[smoke_season_day]), 
-         .by = year) %>%  
-  {ggplot(data = ., 
+  arrange(year, day) %>% 
+  # filter(!is.na(y_color)) %>% 
+  mutate(smoke_season_day = avg_smokePM > 1,
+         .by = year) %>% 
+  {ggplot(data = filter(., !is.na(y_color)),
           aes(y = avg_smokePM, 
               color = y_color, 
               linewidth = I(case_when(type == "annual" & is.na(y_color) ~ 0.35, 
@@ -66,18 +62,30 @@ pop_exposure %>%
                                       T ~ 1.2)),
               group = year)) + 
       geom_line(aes(x = day)) + 
-      geom_point(aes(alpha = I(ifelse(date_rank <= 10, 1, 0)), 
-                     x = day)) + 
-      geom_text(data = filter(., !is.na(y_color)) %>% filter(day == max(day), .by = year) %>% 
-                  mutate(season_length = difftime(smoke_season_day_end, smoke_season_day_start, units = "days") + 1),
-                aes(x = day + as.difftime(-20, units = "days"), 
-                    y = sinh(-0.5 + ifelse(type == "average", 0, (-as.numeric(year) + 2019)*0.22))*2, 
+      # geom_point(aes(alpha = I(ifelse(date_rank <= 10, 1, 0)), 
+      #                x = day)) + 
+      geom_text(data = rbind(filter(., as.numeric(year) >= 2020) %>% 
+                               # filter(day == max(day), .by = year) %>% 
+                               # mutate(season_length = difftime(smoke_season_day_end, smoke_season_day_start, units = "days") + 1),
+                               summarise(season_length = sum(smoke_season_day), .by = c(year, y_color, type)), 
+                             filter(., as.numeric(year) < 2020) %>% 
+                               summarise(season_length = sum(smoke_season_day), .by = c(year, y_color, type)) %>% 
+                               summarise(season_length = round(mean(season_length), 0)) %>% 
+                               mutate(type = "average", year = "2006-2019\naverage") %>% 
+                               mutate(y_color = year)),
+                aes(x = as.Date("2000-12-31") + as.difftime(-20, units = "days"), 
+                    y = sinh(-0.5 + ifelse(type == "average", 0.05, (-as.numeric(year) + 2019)*0.22))*2, 
                     label = paste0(year, ", ", season_length, " days")),
                 hjust = 0, vjust = 0.1, lineheight = 0.65) +
       geom_hline(yintercept = 1, linetype = "dashed") + 
-      geom_linerange(data = select(., year, y_color, type, smoke_season_day_start, smoke_season_day_end) %>% unique, 
-                     aes(xmin = smoke_season_day_start, xmax = smoke_season_day_end, 
-                         y = sinh(-0.5 + ifelse(type == "average", 0, (-as.numeric(year) + 2019)*0.22))*2)) + 
+      # geom_linerange(data = select(., year, y_color, type, smoke_season_day_start, smoke_season_day_end) %>% unique, 
+      #                aes(xmin = smoke_season_day_start, xmax = smoke_season_day_end, 
+      #                    y = sinh(-0.5 + ifelse(type == "average", 0, (-as.numeric(year) + 2019)*0.22))*2)) + 
+      geom_point(data = filter(., smoke_season_day == T) %>% filter(as.numeric(year) >= 2020) %>% select(year, day, y_color, type), 
+                 aes(x = day, y = sinh(-0.5 + ifelse(type == "average", 0, (-as.numeric(year) + 2019)*0.22))*2), 
+                 shape = 16) + 
+      geom_point(data = filter(., smoke_season_day == T) %>% filter(as.numeric(year) < 2020) %>% select(year, day, y_color, type), 
+                 aes(x = day, y = sinh(-0.55 + (-as.numeric(year) + 2019)*0.035)*2), alpha = 0.2, shape = 16) + 
       coord_cartesian(clip = "off") + 
       scale_color_manual(values = c("black", MetBrewer::met.brewer("Juarez", 5))) + # MetBrewer::met.brewer("Degas", 4)
       scale_x_date(date_labels = "%b",
@@ -90,6 +98,13 @@ pop_exposure %>%
       theme_classic() + 
       theme(legend.position = "none", 
             axis.title.x = element_blank(),
-            plot.margin = unit(c(20.5, 80, 5.5, 5.5), "points"))} %>% 
-  ggsave(filename = file.path(path_figures, "smoke_season_length.png"), 
+            plot.margin = unit(c(20.5, 80, 5.5, 5.5), "points"))} %>%
+  ggsave(filename = file.path(path_figures, "smoke_season_length.png"),
          width = 6, height = 4.25)
+
+
+# mutate(smoke_season_day = avg_smokePM > 1) %>% 
+#   summarise(smoke_season_day_start = min(day[smoke_season_day]), 
+#             smoke_season_day_end = max(day[smoke_season_day]), 
+#             nday = sum(smoke_season_day),
+#             .by = year) %>% 
