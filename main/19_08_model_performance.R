@@ -22,14 +22,14 @@ list.files(file.path(path_output, "version1.1", "smokePM", "model"),
   list_rbind() -> all_cv_preds
 all_cv_preds %<>% mutate(out_fold = str_split_i(file, "fold", 2) %>% str_split_i("_", 1) %>% as.numeric, 
                          drop_vars =  gsub(".*drop-|\\.rds", "", file), 
-                         .keep = "unused") 
+                         .keep = "unused") %>% 
+  mutate(smokePM_pred = pmax(0, smokePM_pred)) 
 
 # observed vs predicted
 {all_cv_preds %>%
     filter(drop_vars == "aod_anom_pred" & out_fold == fold) %>% 
     # filter(out_fold != 5 & fold != 5) %>%
     left_join(training_data %>% select(-contains("interp")) %>% distinct()) %>% 
-    mutate(smokePM_pred = pmax(0, smokePM_pred)) %>% 
     ggplot(aes(x = smokePM_pred, y = smokePM)) + 
     geom_bin2d(bins = 60) + 
     geom_abline(intercept = 0, slope = 1, color = "grey30") +

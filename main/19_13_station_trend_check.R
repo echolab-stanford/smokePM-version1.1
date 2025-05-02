@@ -30,6 +30,7 @@ stationPM %>%
   select(id, grid_id_10km) %>% 
   unique %>% 
   cross_join(data.frame(year = 2006:2023)) %>% 
+  # use positive anomalies of station smoke PM to match the predictions 
   left_join(stationPM %>% 
               ungroup %>% 
               left_join(report_schedule) %>% 

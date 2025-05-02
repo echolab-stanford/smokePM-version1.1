@@ -16,7 +16,7 @@ smokePM_pred <- file.path(path_output, "version1.1", "smokePM", "predictions",
   readRDS %>% 
   mutate(smokePM_pred = pmax(0, smokePM_pred)) 
 
-decadal_change <- smokePM_pred %>% 
+trends  <- smokePM_pred %>% 
   mutate(year = lubridate::year(date)) %>% 
   # calculate annual avg contribution of smokePM to daily PM
   summarise(annual_total_smokePM = sum(smokePM_pred), 
@@ -45,14 +45,14 @@ purrr::pmap(data.frame(panel_name = c("annual_daily_smokePM", "annual_days_over5
                                       "annual_daily_smokePM", "annual_days_over50"), 
                        panel_type = c("avg", "avg", "trend", "trend"),
                        min_bound = -Inf, 
-                       max_bound = c(2, 3, 0.5, 1),
+                       max_bound = c(2, 3, 0.4, 1),
                        legend_title = I(list(expression(paste(mu, "g/", m^3)), 
                                              expression(paste("days >50", mu, "g/", m^3)), 
                                              expression(paste(Delta, mu, "g/", m^3)), 
                                              expression(paste(Delta, "days >50", mu, "g/", m^3)))),
                        color_breaks = I(list(seq(-0.5, 2, by = 0.5), 
                                              seq(0, 3, by = 1), 
-                                             seq(0, 0.5, by = 0.1), 
+                                             seq(0, 0.4, by = 0.1), 
                                              seq(-0.25, 1, by = 0.25))),
                        color_rescaler = I(list(scales::rescale, scales::rescale, mid_rescaler(0), mid_rescaler(0))),
                        color_values = I(list(cmocean::cmocean("matter",
@@ -73,7 +73,7 @@ purrr::pmap(data.frame(panel_name = c("annual_daily_smokePM", "annual_days_over5
               if(min_bound > -Inf){color_labels[1] = paste0("<", color_labels[1])}
               if(max_bound < Inf){color_labels[length(color_labels)] = paste0(">", color_labels[length(color_labels)])}
               grid %>% 
-                left_join(decadal_change %>% 
+                left_join(trends %>% 
                             pivot_longer(c(trend, avg), names_to = "type") %>% 
                             filter(name == panel_name, type == panel_type), 
                           by = c("ID" = "grid_id_10km")) %>% 
