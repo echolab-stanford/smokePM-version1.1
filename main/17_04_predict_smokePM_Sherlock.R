@@ -43,7 +43,7 @@ model_version = "1.1"
 start_date = "20060101" 
 end_date = "20241231" 
 data_start_date = "20060101" # when should the data start, used for determining whether to get previous month AOT
-data_end_date = "20241231" # when does the data end, used for determining wheter the get next month ERA5 data
+data_end_date = "20241231" # when does the data end, used for determining whether the get next month ERA5 data
 # Set whether to overwrite preexisting files or not
 overwrite = T
 
@@ -105,7 +105,6 @@ out <- foreach(
 
     xgb_mod <-xgb.load(file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "model","smokePM_mod_fold99_drop-aod_anom_pred.xgb"))
     xgb.parameters(xgb_mod) <- list(nthread = xgb_nthread)
-    print("model loaded")
     
     # Filled fire and smoke
     filled_fire_file = file.path(path_data_sherlock, "3_intermediate", "filled_fire_auto", sprintf("filled_distance_to_fire_cluster_%s_%s.rds", y_str, m_str))
@@ -135,12 +134,11 @@ out <- foreach(
     }
     fire_dist = fire_dist %>% select(id_grid, date, km_dist, area, num_points) %>% 
       mutate(date = as.Date(date, format = "%Y%m%d"))
-    print("fire data loaded")
+    
   # Anomalous AOT - aot_anom files dated 04/18/2024 are cleared of repeated observations
   aot = file.path(path_data_sherlock, "3_intermediate", "aot_anom_auto", sprintf("aot_anom_%s_%s.rds", y_str, m_str)) 
   aot = readRDS(aot) %>% filter(year(date) == as.integer(y_str))
   if (format(min(dates_m), "%Y%m%d") != data_start_date) {
-    print("Using lagged AOT from previous month")
     prev_aot = file.path(path_data_sherlock, "3_intermediate", "aot_anom_auto", sprintf("aot_anom_%s_%s.rds", prev_y_str, prev_m_str))
     prev_aot = readRDS(prev_aot) %>% filter(year(date) == as.integer(prev_y_str))
     aot = bind_rows(aot, prev_aot)
@@ -168,7 +166,7 @@ out <- foreach(
            year(date) == as.integer(y_str),
            month(date) == as.integer(m_str)) %>% 
     select(-orig)
-  print("aot data loaded")
+  
     #ERA5
   # load this month and next month to get leads of precipitation 
   next_ym_str <- seq.Date(ymd(paste0(year_month, "-01")),
@@ -199,7 +197,6 @@ out <- foreach(
   era5_combined_grids <- era5_combined_grids %>% 
     filter(month(date) == as.numeric(m_str), 
            year(date) == as.numeric(y_str))
-  print("era5 data loaded")
  
     #Interpolations
     interpolations =  file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM_interpolation", "revisions", "interpolations_full_model", 
@@ -208,9 +205,7 @@ out <- foreach(
     smoke_interpolation = readRDS(interpolations) %>% 
     rename(grid_id_10km = id,
       smokePM_interp = interp)
-    print("interpolations loaded")
 
-    print(paste0("starting on days for ", year_month))
   out_m = foreach(d = 1:length(dates_m), .combine = c) %do% { 
     ymd_str = format(dates_m[d], "%Y%m%d")
    out_file = file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "predictions",
@@ -238,18 +233,19 @@ out <- foreach(
                                          closest_fire_area = area, 
                                          closest_fire_num_points = num_points), 
                   by = c("grid_id_10km", "date")) %>% 
-        left_join(era5_month_d %>% select(grid_id_10km = id_grid, date, 
-                                          pbl_max = `boundary_layer_height_daily_maximum`,
-                                          pbl_mean = `boundary_layer_height_daily_mean`,
-                                          pbl_min = `boundary_layer_height_daily_minimum`,
-                                          sea_level_pressure = `mean_sea_level_pressure_daily_mean`,
-                                          wind_u = `10m_u_component_of_wind_daily_mean`,
-                                          wind_v = `10m_v_component_of_wind_daily_mean`,
-                                          dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean`,
-                                          temp_2m = `2m_temperature_daily_mean`,
-                                          surface_pressure = `surface_pressure_daily_mean`,
-                                          precip = `total_precipitation_daily_total`), 
-                  by = c("grid_id_10km", "date")) %>% 
+        inner_join(era5_month_d %>% select(grid_id_10km = id_grid, date, 
+                                           pbl_max = `boundary_layer_height_daily_maximum`,
+                                           pbl_mean = `boundary_layer_height_daily_mean`,
+                                           pbl_min = `boundary_layer_height_daily_minimum`,
+                                           sea_level_pressure = `mean_sea_level_pressure_daily_mean`,
+                                           wind_u = `10m_u_component_of_wind_daily_mean`,
+                                           wind_v = `10m_v_component_of_wind_daily_mean`,
+                                           dewpoint_temp_2m = `2m_dewpoint_temperature_daily_mean`,
+                                           temp_2m = `2m_temperature_daily_mean`,
+                                           surface_pressure = `surface_pressure_daily_mean`,
+                                           precip = `total_precipitation_daily_total`) %>% 
+                     drop_na(!precip), # drop except missing precip which happens when we don't have a lead of precip to use 
+                   by = c("grid_id_10km", "date")) %>% 
         left_join(interp_d, 
                   by = c("grid_id_10km", "date")) %>% #joining interpolated values
         left_join(cross_processed, by = "grid_id_10km")
@@ -293,12 +289,13 @@ sink()
 stopImplicitCluster()
 
 file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "predictions") %>% 
-  list.files(full.names = T) %>% 
+  list.files(full.names = T, pattern ="smokePM_predictions_10km_\\d{8}.rds") %>% 
   purrr::map(readRDS) %>% 
-  list_rbind() -> full_preds 
+  purrr::list_rbind() -> full_preds 
+full_preds <- full_preds %>% mutate(smokePM_pred = pmax(0, smokePM_pred))
 
 full_out_file = file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM", "revisions", "predictions", 
-                          paste0("smokePM_predictions_", format(min(full_preds$date), "%Y%m%d"), "_", format(max(full_preds$date), "%Y%m%d"), ".rds")) 
+                          paste0("smokePM_predictions_10km_", format(min(full_preds$date), "%Y%m%d"), "_", format(max(full_preds$date), "%Y%m%d"), ".rds")) 
 
 saveRDS(full_preds, full_out_file)
 
