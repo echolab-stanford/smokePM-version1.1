@@ -1,8 +1,11 @@
-source("scripts/setup/00_01_load_packages.R")
-source("scripts/setup/00_02_load_functions.R")
-source("scripts/setup/00_03_load_paths.R")
-source("scripts/setup/00_04_load_settings.R")
-
+# source("scripts/setup/00_01_load_packages.R")
+# source("scripts/setup/00_02_load_functions.R")
+source("./setup/00_03_load_paths.R")
+library(tidyverse)
+library(sf)
+library(tigris)
+#options(tigris_use_cache = TRUE)
+#source("scripts/setup/00_04_load_settings.R")
 # ------------------------------------------------------------------------------
 # Written by: Marissa Childs
 # Aggregates 10 km grid smokePM predictions to county level.
@@ -13,73 +16,79 @@ model_version = "1.1"
 
 # Set date range to aggregate
 start_date = "20060101" # "20060101"
-end_date = "20230715" # format(today() - days(1), "%Y%m%d")
+end_date = "20241231" # format(today() - days(1), "%Y%m%d")
 #-#-----------------------------------------------------------------------------
 
-unit <- "county" # alternatively, "tract"
-# load shapefile, plus 10km grid transformed to match the crs
-if(unit == "county"){
-  unit_sf <- counties() %>% 
-    filter(STATEFP %in% nonContig_stateFIPS == F)
-} else if(unit == "tract"){
-  unit_sf <- states() %>% 
-    filter(STATEFP %in% nonContig_stateFIPS == F) %>% 
-    pull(STATEFP) %>% 
-    map_dfr(function(x){
-      tracts(x, year = 2019) %>% select(STATEFP, GEOID)
-    })
-} else{
-  stop("only allowed units are \"tract\" or \"county\"")
+# smoke PM predictions 
+smokePM <- readRDS(file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM",  "revisions", "predictions_marissa", sprintf("smokePM_predictions_10km_%s_%s.rds", start_date, end_date)))
+
+#year of data to aggregate
+years <- 2006:2024
+# Initialize an empty list to store results from each year
+consistent_county_aggregated_list <- list()
+
+for (year_i in years) {#year_i = 2006
+  
+  # Use 2023 crosswalk for 2024 to ensure consistency
+  crosswalk_year <- if (year_i == 2024) 2023 else year_i #we use 2023 pop weights for 2024
+  
+  print(crosswalk_year)
+  
+  # Load population crosswalks
+  unit_cross <- readRDS(file.path(
+    path_data_sherlock, "1_grids", "county_crosswalks",
+    sprintf("consistent_counties_grid_pop_crosswalk_%s.rds", crosswalk_year)
+  ))
+  
+  # Load smoke PM predictions for the given year 
+  smokePM_year <- smokePM %>% 
+    filter(year(date) == year_i)
+  
+  # Identify smoke-days per grid unit
+  unit_smoke_days <- smokePM_year %>%
+    # Add unit information (GEOID), duplicating rows if grids belong to multiple counties
+    left_join(unit_cross %>%
+                st_drop_geometry() %>%
+                select(grid_id_10km, GEOID),
+              by = "grid_id_10km") %>%
+    # Drop grid cells that don't match to a unit
+    filter(!is.na(GEOID)) %>%
+    # Select only the relevant columns
+    select(date, GEOID) %>%
+    # Keep only unique unit-days
+    distinct()
+  
+  # Join unit-days with crosswalk and smoke PM predictions
+  unit_smokePM <- unit_smoke_days %>%
+    # Join all grid-cells for each unit
+    left_join(unit_cross %>% st_drop_geometry(), by = "GEOID") %>%
+    # Join smoke PM predictions
+    left_join(smokePM, by = c("grid_id_10km", "date"))
+  
+  # Fill missing smokePM values with 0 and calculate population-weighted average
+  avg_unit_smokePM <- unit_smokePM %>%
+    # Replace missing predictions with 0
+    replace_na(list(smokePM_pred = 0)) %>%
+    # Group by unit and date
+    group_by(GEOID, date) %>%
+    #replace pop = 0 for 1 in places where all cells are 0
+    mutate(pop = ifelse(rep(all(pop == 0), n()), 1, pop)) %>% 
+    # Calculate population-weighted mean smoke PM
+    summarise(smokePM_pred = weighted.mean(smokePM_pred, pop), .groups = "drop") %>%
+    # Add year column for future filtering or analysis
+    mutate(year = year_i)
+  
+  # Save this year's result to the list
+  consistent_county_aggregated_list[[as.character(year_i)]] <- avg_unit_smokePM
+  
+  print(paste0("processed year ", crosswalk_year))
+
 }
 
-# read in the grid
-grid_10km <- st_read(file.path(path_final, "10km_grid", "10km_grid_wgs84", "10km_grid_wgs84.shp")) %>% 
-  st_transform(st_crs(unit_sf))
+# Combine all years into a single data frame
+consistent_county_aggregated <- bind_rows(consistent_county_aggregated_list)
 
-# make a crosswalk with intersection area with grid cells
-unit_cross = st_intersection(unit_sf,
-                             grid_10km) %>% 
-  select(GEOID, grid_id_10km = ID) %>% 
-  {cbind(st_drop_geometry(.), 
-         area = st_area(.))} 
+saveRDS(consistent_county_aggregated, 
+        file.path(path_output_sherlock, sprintf("version%s", model_version), "smokePM",  "revisions", "aggregated",
+                  sprintf("consistent_counties_smokePM_predictions_yearly_weighted_%s-%s.rds",  start_date, end_date)))
 
-# save the crosswalk since it takes a while to make 
-saveRDS(unit_cross, file.path(path_data, "1_grids", sprintf("%s_grid_area_crosswalk.rds", unit)))
-
-# population by grid cell
-pop <- list.files(file.path(path_data, "2_from_EE", "populationDensity_10km_subgrid"),
-                  full.names = T) %>% purrr::map_dfr(read.csv)
-
-# smoke PM predictions 
-smokePM <- readRDS(file.path(path_output, sprintf("version%s", model_version), "smokePM", "predictions", "combined", sprintf("smokePM_predictions_%s-%s.rds", start_date, end_date)))
-
-# lets only save predictions if there's a smoke day in the unit, start by identifying smoke-days per unit
-unit_smoke_days = smokePM %>% # 51434138 rows
-  # add unit information, this will duplicate any rows that are in multiple counties
-  left_join(unit_cross %>% select(grid_id_10km, GEOID),
-            by = "grid_id_10km") %>% # 76009188 rows for county 
-  filter(!is.na(GEOID)) %>% # drop grid cells that don't match to a unit
-  # full set of unit-days with smoke 
-  select(date, GEOID) %>% 
-  unique  # 2308941 rows (should actually be less after dropping NAs)
-
-unit_smokePM <- unit_smoke_days %>% 
-  # join in all grid-cells for each unit
-  left_join(unit_cross, by = "GEOID") %>% # 119622779 rows
-  # join in population and smoke PM predictions 
-  left_join(pop %>% select(grid_id_10km = ID, grid_pop_per_m2 = mean)) %>%
-  left_join(smokePM) # should still be 119622779 rows
-
-# fill missings with 0s
-# calculate pop-weighted avg (density * area) over grid cells in each unit
-avg_unit_smokePM <- unit_smokePM %>% 
-  replace_na(list(smokePM_pred = 0)) %>%
-  mutate(area = unclass(area), 
-         pop = grid_pop_per_m2*area) %>%
-  group_by(GEOID, date) %>% 
-  summarise(smokePM_pred = weighted.mean(smokePM_pred, pop)) %>% 
-  ungroup
-
-saveRDS(avg_unit_smokePM, 
-        file.path(path_output, sprintf("version%s", model_version), "smokePM", "predictions", "combined", 
-          sprintf("%s_smokePM_predictions_%s-%s.rds", unit, start_date, end_date)))
