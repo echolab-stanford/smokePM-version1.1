@@ -259,4 +259,4 @@ Where temporal coverage must be set by the user, specify `start_` and `end_` dat
 
 * What is the difference between `smokePM` and `filled_smokePM` in the EPA station-day smoke PM2.5 panel data frame?
 
-  On dates where smoke data are missing, we either can treat those as non-smoke day (`smokePM`) or fill based on 1-2 days before and after (`filled_smokePM`).
+  On dates where smoke data are missing, we either can treat those as non-smoke day (`smokePM`) or fill based on 1-2 days before and after (`filled_smokePM`).# SmokePM_real_time_interpolations
